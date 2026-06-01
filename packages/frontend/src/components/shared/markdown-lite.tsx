@@ -154,12 +154,12 @@ function processInlineMarkdown(text: string, stopPropagation: boolean) {
         const linkMatch = match.match(/\[([^\]]+)\]\(([^\)]+)\)/);
         if (linkMatch) {
           const [, text, url] = linkMatch;
+          const isExternal = !url.startsWith('/') && !url.startsWith('#');
           return (
             <a
               key={i}
               href={url}
-              target="_blank"
-              rel="noopener noreferrer"
+              {...(isExternal && { target: '_blank', rel: 'noopener noreferrer' })}
               className="text-[--brand] hover:underline"
               onClick={(e) => stopPropagation && e.stopPropagation()}
             >
