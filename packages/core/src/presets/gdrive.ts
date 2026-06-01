@@ -167,7 +167,8 @@ export class GDrivePreset extends Preset {
         !appConfig.builtins.gdrive.clientId ||
         !appConfig.builtins.gdrive.clientSecret
           ? {
-              reason: 'Not configured',
+              reason:
+                'Not configured. **Admins:** set the OAuth Client ID and Secret in [Settings → Built-ins](/dashboard/settings?tab=builtins), then return here to authorise.',
               disabled: true,
             }
           : undefined,
