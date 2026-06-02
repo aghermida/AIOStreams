@@ -63,7 +63,7 @@ import {
   createLogger,
   Env,
   validateNextcloudMediaToken,
-  getNextcloudMimeType,
+  type NextcloudConfig,
 } from '@aiostreams/core';
 import { StremioTransformer } from '@aiostreams/core';
 import { createResponse } from './utils/responses.js';
@@ -198,66 +198,78 @@ builtinsRouter.use('/library', library);
 builtinsRouter.use('/nextcloud', nextcloud);
 app.use('/builtins', builtinsRouter);
 
-// Public Nextcloud media file server (token-protected, range-request capable)
+// Public Nextcloud media file server — WebDAV proxy (token-protected, range-request capable)
+// URL: /nextcloud-media/:mediaToken/:base64Config/files/:filename
+// base64Config = base64url(JSON({ url, username, password, folder }))
+// The HMAC token is derived from the config itself, so it's config-specific.
 interface NextcloudMediaParams {
   mediaToken: string;
+  base64Config: string;
   filename: string;
 }
 app.get(
-  '/nextcloud-media/:mediaToken/files/:filename',
-  (req: Request<NextcloudMediaParams>, res: Response) => {
+  '/nextcloud-media/:mediaToken/:base64Config/files/:filename',
+  async (req: Request<NextcloudMediaParams>, res: Response) => {
     const mediaToken = req.params.mediaToken;
+    const base64Config = req.params.base64Config;
     const filename = req.params.filename;
 
-    if (!validateNextcloudMediaToken(mediaToken)) {
+    let config: NextcloudConfig;
+    try {
+      config = JSON.parse(
+        Buffer.from(base64Config, 'base64url').toString()
+      ) as NextcloudConfig;
+    } catch {
+      res.status(400).json({ error: 'Invalid config encoding' });
+      return;
+    }
+
+    if (!validateNextcloudMediaToken(mediaToken, config)) {
       res.status(403).json({ error: 'Forbidden' });
       return;
     }
 
-    const mediaPath = appConfig.builtins.nextcloud?.mediaPath;
-    if (!mediaPath) {
-      res.status(503).json({ error: 'Nextcloud media path not configured' });
-      return;
-    }
-
     const decodedFilename = decodeURIComponent(filename as string);
-    // Security: no path traversal
-    if (decodedFilename.includes('/') || decodedFilename.includes('\\') || decodedFilename.includes('..')) {
+    if (
+      decodedFilename.includes('/') ||
+      decodedFilename.includes('\\') ||
+      decodedFilename.includes('..')
+    ) {
       res.status(400).json({ error: 'Invalid filename' });
       return;
     }
 
-    const filePath = path.join(mediaPath, decodedFilename);
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: 'File not found' });
-      return;
-    }
+    const davUrl = `${config.url}/remote.php/dav/files/${config.username}${config.folder}/${decodedFilename}`;
+    const fetchHeaders: Record<string, string> = {
+      Authorization: `Basic ${Buffer.from(`${config.username}:${config.password}`).toString('base64')}`,
+    };
+    if (req.headers.range) fetchHeaders['Range'] = req.headers.range;
 
-    const stat = fs.statSync(filePath);
-    const fileSize = stat.size;
-    const mimeType = getNextcloudMimeType(decodedFilename);
-    const range = req.headers.range;
-
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0] ?? '0', 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunkSize = end - start + 1;
-
-      res.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': mimeType,
-      });
-      fs.createReadStream(filePath, { start, end }).pipe(res);
-    } else {
-      res.writeHead(200, {
-        'Content-Length': fileSize,
-        'Content-Type': mimeType,
-        'Accept-Ranges': 'bytes',
-      });
-      fs.createReadStream(filePath).pipe(res);
+    try {
+      const davRes = await fetch(davUrl, { headers: fetchHeaders });
+      res.status(davRes.status);
+      for (const key of [
+        'content-type',
+        'content-length',
+        'content-range',
+        'accept-ranges',
+      ]) {
+        const val = davRes.headers.get(key);
+        if (val) res.setHeader(key, val);
+      }
+      if (davRes.body) {
+        const { Readable } = await import('stream');
+        Readable.fromWeb(davRes.body as any).pipe(res);
+      } else {
+        res.end();
+      }
+    } catch (e) {
+      logger.error(
+        `Nextcloud proxy error for "${decodedFilename}": ${e instanceof Error ? e.message : e}`
+      );
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Failed to fetch from Nextcloud' });
+      }
     }
   }
 );

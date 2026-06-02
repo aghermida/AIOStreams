@@ -1,35 +1,50 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { NextcloudAddon, createLogger } from '@aiostreams/core';
+import { NextcloudAddon, NextcloudConfig, createLogger } from '@aiostreams/core';
 
 const router: Router = Router();
 const logger = createLogger('server');
 
+function decodeConfig(encoded: string): NextcloudConfig {
+  return JSON.parse(Buffer.from(encoded, 'base64url').toString());
+}
+
 router.get(
-  '/manifest.json',
-  async (req: Request, res: Response, next: NextFunction) => {
+  '{/:encodedConfig}/manifest.json',
+  async (
+    req: Request<{ encodedConfig?: string }>,
+    res: Response,
+    next: NextFunction
+  ) => {
     try {
-      res.json(NextcloudAddon.getManifest());
+      const encodedConfig = req.params.encodedConfig as string | undefined;
+      const config = encodedConfig ? decodeConfig(encodedConfig) : undefined;
+      const manifest = config
+        ? new NextcloudAddon(config).getManifest()
+        : NextcloudAddon.getManifest();
+      res.json(manifest);
     } catch (error) {
       next(error);
     }
   }
 );
 
-interface NextcloudMetaParams {
+interface NextcloudConfigParams {
+  encodedConfig: string;
   type: string;
   id: string;
 }
 
 router.get(
-  '/meta/:type/:id.json',
+  '/:encodedConfig/meta/:type/:id.json',
   async (
-    req: Request<NextcloudMetaParams>,
+    req: Request<NextcloudConfigParams>,
     res: Response,
     next: NextFunction
   ) => {
-    const { type, id } = req.params;
+    const { encodedConfig, type, id } = req.params;
     try {
-      const addon = new NextcloudAddon();
+      const config = decodeConfig(encodedConfig);
+      const addon = new NextcloudAddon(config);
       const meta = await addon.getMeta(type, id);
       res.json({ meta });
     } catch (error) {
@@ -39,21 +54,23 @@ router.get(
 );
 
 interface NextcloudCatalogParams {
+  encodedConfig: string;
   type: string;
   id: string;
   extras?: string;
 }
 
 router.get(
-  '/catalog/:type/:id{/:extras}.json',
+  '/:encodedConfig/catalog/:type/:id{/:extras}.json',
   async (
     req: Request<NextcloudCatalogParams>,
     res: Response,
     next: NextFunction
   ) => {
-    const { type, id, extras } = req.params;
+    const { encodedConfig, type, id, extras } = req.params;
     try {
-      const addon = new NextcloudAddon();
+      const config = decodeConfig(encodedConfig);
+      const addon = new NextcloudAddon(config);
       const catalog = await addon.getCatalog(type, id, extras);
       res.json({ metas: catalog });
     } catch (error) {
@@ -62,21 +79,17 @@ router.get(
   }
 );
 
-interface NextcloudStreamParams {
-  type: string;
-  id: string;
-}
-
 router.get(
-  '/stream/:type/:id.json',
+  '/:encodedConfig/stream/:type/:id.json',
   async (
-    req: Request<NextcloudStreamParams>,
+    req: Request<NextcloudConfigParams>,
     res: Response,
     next: NextFunction
   ) => {
-    const { type, id } = req.params;
+    const { encodedConfig, type, id } = req.params;
     try {
-      const addon = new NextcloudAddon();
+      const config = decodeConfig(encodedConfig);
+      const addon = new NextcloudAddon(config);
       const streams = await addon.getStreams(type, id);
       res.json({ streams });
     } catch (error) {
