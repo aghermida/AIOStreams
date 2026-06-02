@@ -199,10 +199,15 @@ builtinsRouter.use('/nextcloud', nextcloud);
 app.use('/builtins', builtinsRouter);
 
 // Public Nextcloud media file server (token-protected, range-request capable)
+interface NextcloudMediaParams {
+  mediaToken: string;
+  filename: string;
+}
 app.get(
   '/nextcloud-media/:mediaToken/files/:filename',
-  (req: Request, res: Response) => {
-    const { mediaToken, filename } = req.params;
+  (req: Request<NextcloudMediaParams>, res: Response) => {
+    const mediaToken = req.params.mediaToken;
+    const filename = req.params.filename;
 
     if (!validateNextcloudMediaToken(mediaToken)) {
       res.status(403).json({ error: 'Forbidden' });
@@ -215,7 +220,7 @@ app.get(
       return;
     }
 
-    const decodedFilename = decodeURIComponent(filename);
+    const decodedFilename = decodeURIComponent(filename as string);
     // Security: no path traversal
     if (decodedFilename.includes('/') || decodedFilename.includes('\\') || decodedFilename.includes('..')) {
       res.status(400).json({ error: 'Invalid filename' });
