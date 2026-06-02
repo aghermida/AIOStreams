@@ -10,11 +10,14 @@ function decodeConfig(encoded: string): NextcloudConfig {
 
 router.get(
   '{/:encodedConfig}/manifest.json',
-  async (req: Request, res: Response, next: NextFunction) => {
+  async (
+    req: Request<{ encodedConfig?: string }>,
+    res: Response,
+    next: NextFunction
+  ) => {
     try {
-      const config = req.params.encodedConfig
-        ? decodeConfig(req.params.encodedConfig)
-        : undefined;
+      const encodedConfig = req.params.encodedConfig as string | undefined;
+      const config = encodedConfig ? decodeConfig(encodedConfig) : undefined;
       const manifest = config
         ? new NextcloudAddon(config).getManifest()
         : NextcloudAddon.getManifest();
