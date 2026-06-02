@@ -354,6 +354,18 @@ export const builtinsSchema = {
       secret: false,
     },
   },
+  nextcloud: {
+    mediaPath: {
+      schema: nullableString,
+      default: null,
+      label: 'Nextcloud media path',
+      env: 'BUILTIN_NEXTCLOUD_MEDIA_PATH',
+      description:
+        'Absolute path (inside the container) to the directory containing media files to serve in Stremio. Mount your Nextcloud Stremio folder here.',
+      requiresRestart: false,
+      secret: false,
+    },
+  },
   gdrive: {
     clientId: {
       schema: nullableString,

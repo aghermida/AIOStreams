@@ -113,6 +113,7 @@ const ACRONYMS: Record<string, string> = {
   rpdb: 'RPDB',
   oauth: 'OAuth',
   gdrive: 'GDrive',
+  nextcloud: 'Nextcloud',
   sqlite: 'SQLite',
   postgres: 'Postgres',
   redis: 'Redis',

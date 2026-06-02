@@ -43,6 +43,7 @@ import {
   seadex,
   easynews,
   library,
+  nextcloud,
 } from './routes/builtins/index.js';
 import {
   ipMiddleware,
@@ -61,6 +62,8 @@ import {
   constants,
   createLogger,
   Env,
+  validateNextcloudMediaToken,
+  getNextcloudMimeType,
 } from '@aiostreams/core';
 import { StremioTransformer } from '@aiostreams/core';
 import { createResponse } from './utils/responses.js';
@@ -192,7 +195,67 @@ builtinsRouter.use('/torrent-galaxy', torrentGalaxy);
 builtinsRouter.use('/seadex', seadex);
 builtinsRouter.use('/easynews', easynews);
 builtinsRouter.use('/library', library);
+builtinsRouter.use('/nextcloud', nextcloud);
 app.use('/builtins', builtinsRouter);
+
+// Public Nextcloud media file server (token-protected, range-request capable)
+app.get(
+  '/nextcloud-media/:mediaToken/files/:filename',
+  (req: Request, res: Response) => {
+    const { mediaToken, filename } = req.params;
+
+    if (!validateNextcloudMediaToken(mediaToken)) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+
+    const mediaPath = appConfig.builtins.nextcloud?.mediaPath;
+    if (!mediaPath) {
+      res.status(503).json({ error: 'Nextcloud media path not configured' });
+      return;
+    }
+
+    const decodedFilename = decodeURIComponent(filename);
+    // Security: no path traversal
+    if (decodedFilename.includes('/') || decodedFilename.includes('\\') || decodedFilename.includes('..')) {
+      res.status(400).json({ error: 'Invalid filename' });
+      return;
+    }
+
+    const filePath = path.join(mediaPath, decodedFilename);
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+
+    const stat = fs.statSync(filePath);
+    const fileSize = stat.size;
+    const mimeType = getNextcloudMimeType(decodedFilename);
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0] ?? '0', 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunkSize = end - start + 1;
+
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': mimeType,
+      });
+      fs.createReadStream(filePath, { start, end }).pipe(res);
+    } else {
+      res.writeHead(200, {
+        'Content-Length': fileSize,
+        'Content-Type': mimeType,
+        'Accept-Ranges': 'bytes',
+      });
+      fs.createReadStream(filePath).pipe(res);
+    }
+  }
+);
 
 // Content-hashed build assets. These filenames change on every content
 // change, so they are immutable and safe to cache aggressively. Deliberately
