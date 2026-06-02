@@ -20,33 +20,57 @@ export class NextcloudPreset extends Preset {
       constants.META_RESOURCE,
     ];
 
-    const basePath = appConfig.builtins.nextcloud?.mediaPath;
-
-    const options: Option[] = basePath
-      ? [
-          {
-            id: 'mediaPath',
-            name: 'Media Path',
-            description:
-              'Absolute path to the directory containing your media files. Must be within the base directory configured by the server admin.',
-            type: 'string',
-            required: true,
-            default: '',
-            showInSimpleMode: true,
-          },
-          ...baseOptions(
-            'Nextcloud Media',
-            supportedResources,
-            appConfig.presets.defaultTimeout
-          ).filter((o) => o.id !== 'url'),
-        ]
-      : [];
+    const options: Option[] = [
+      {
+        id: 'url',
+        name: 'Nextcloud URL',
+        description: 'URL of your Nextcloud instance (e.g. https://cloud.example.com)',
+        type: 'url',
+        required: true,
+        default: '',
+        showInSimpleMode: true,
+      },
+      {
+        id: 'username',
+        name: 'Username',
+        description: 'Your Nextcloud username',
+        type: 'string',
+        required: true,
+        default: '',
+        showInSimpleMode: true,
+      },
+      {
+        id: 'password',
+        name: 'Password / App Token',
+        description:
+          'Your Nextcloud password or an app-specific token (recommended: Settings → Security → App passwords).',
+        type: 'password',
+        required: true,
+        default: '',
+        showInSimpleMode: true,
+      },
+      {
+        id: 'folder',
+        name: 'Folder',
+        description:
+          'Path to your media folder inside Nextcloud (e.g. /Stremio)',
+        type: 'string',
+        required: true,
+        default: '/Stremio',
+        showInSimpleMode: true,
+      },
+      ...baseOptions(
+        'Nextcloud Media',
+        supportedResources,
+        appConfig.presets.defaultTimeout
+      ).filter((o) => o.id !== 'url'),
+    ];
 
     return {
       ID: 'nextcloud-media',
       NAME: 'Nextcloud Media',
       DESCRIPTION:
-        'Stream media files from your Nextcloud Stremio folder directly in Stremio!',
+        'Stream media files from your Nextcloud folder directly in Stremio!',
       LOGO: `/assets/nextcloud_logo.svg`,
       URL: [`${appConfig.bootstrap.internalUrl}/builtins/nextcloud`],
       TIMEOUT: appConfig.presets.defaultTimeout,
@@ -56,13 +80,6 @@ export class NextcloudPreset extends Preset {
       SUPPORTED_SERVICES: [],
       OPTIONS: options,
       BUILTIN: true,
-      DISABLED: !basePath
-        ? {
-            reason:
-              'Not configured. **Admins:** set the Media Path in [Settings → Built-ins](/dashboard/settings?tab=builtins).',
-            disabled: true,
-          }
-        : undefined,
     };
   }
 
@@ -95,7 +112,13 @@ export class NextcloudPreset extends Preset {
   }
 
   private static generateManifestUrl(options: Record<string, any>): string {
-    const mediaPath = options.mediaPath || '';
-    return `${this.DEFAULT_URL}/manifest.json?mediaPath=${encodeURIComponent(mediaPath)}`;
+    const config = {
+      url: options.url || '',
+      username: options.username || '',
+      password: options.password || '',
+      folder: options.folder || '/Stremio',
+    };
+    const encoded = Buffer.from(JSON.stringify(config)).toString('base64url');
+    return `${this.DEFAULT_URL}/${encoded}/manifest.json`;
   }
 }

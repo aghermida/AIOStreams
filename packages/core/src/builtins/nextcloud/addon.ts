@@ -1,6 +1,6 @@
 import { createHmac } from 'crypto';
-import { readdirSync, statSync } from 'fs';
-import { join, extname } from 'path';
+import { extname } from 'path';
+import { createClient, WebDAVClient } from 'webdav';
 import { Manifest, Meta, MetaPreview, Stream } from '../../db/index.js';
 import { createLogger, ExtrasParser } from '../../utils/index.js';
 import { config as appConfig } from '../../config/index.js';
@@ -42,15 +42,25 @@ const MIME_TYPES: Record<string, string> = {
   '.iso': 'application/octet-stream',
 };
 
-export function getNextcloudMediaToken(): string {
+export interface NextcloudConfig {
+  url: string;
+  username: string;
+  password: string;
+  folder: string;
+}
+
+export function getNextcloudMediaToken(config: NextcloudConfig): string {
   return createHmac('sha256', appConfig.bootstrap.internalSecret)
-    .update('nextcloud-media-v1')
+    .update('nextcloud-media-v2' + JSON.stringify(config))
     .digest('hex')
     .slice(0, 32);
 }
 
-export function validateNextcloudMediaToken(token: string): boolean {
-  return token === getNextcloudMediaToken();
+export function validateNextcloudMediaToken(
+  token: string,
+  config: NextcloudConfig
+): boolean {
+  return token === getNextcloudMediaToken(config);
 }
 
 export function getNextcloudMimeType(filename: string): string {
@@ -59,35 +69,54 @@ export function getNextcloudMimeType(filename: string): string {
 }
 
 export class NextcloudAddon {
-  private mediaPath: string;
+  private config: NextcloudConfig;
+  private client: WebDAVClient;
 
-  constructor(mediaPath: string) {
-    if (!mediaPath) throw new Error('Nextcloud media path is not configured');
-    this.mediaPath = mediaPath;
+  constructor(config: NextcloudConfig) {
+    this.config = config;
+    this.client = createClient(
+      `${config.url}/remote.php/dav/files/${config.username}`,
+      { username: config.username, password: config.password }
+    );
   }
 
   private getStreamUrl(filename: string): string {
-    const token = getNextcloudMediaToken();
-    const base64Path = Buffer.from(this.mediaPath).toString('base64url');
-    const encoded = encodeURIComponent(filename);
-    return `${appConfig.bootstrap.baseUrl}/nextcloud-media/${token}/${base64Path}/files/${encoded}`;
+    const token = getNextcloudMediaToken(this.config);
+    const base64Config = Buffer.from(JSON.stringify(this.config)).toString(
+      'base64url'
+    );
+    return `${appConfig.bootstrap.baseUrl}/nextcloud-media/${token}/${base64Config}/files/${encodeURIComponent(filename)}`;
   }
 
-  private listVideoFiles(): string[] {
+  private async listVideoFiles(): Promise<string[]> {
     try {
-      const files = readdirSync(this.mediaPath);
-      return files.filter((f) => VIDEO_EXTENSIONS.has(extname(f).toLowerCase()));
+      const contents = await this.client.getDirectoryContents(
+        this.config.folder
+      );
+      const items = Array.isArray(contents) ? contents : (contents as any).data;
+      return items
+        .filter(
+          (f: any) =>
+            f.type === 'file' &&
+            VIDEO_EXTENSIONS.has(extname(f.basename).toLowerCase())
+        )
+        .map((f: any) => f.basename as string);
     } catch (e) {
       logger.error(
-        `Failed to read media directory "${this.mediaPath}": ${e instanceof Error ? e.message : e}`
+        `Failed to list Nextcloud directory "${this.config.folder}": ${e instanceof Error ? e.message : e}`
       );
       return [];
     }
   }
 
-  private getFileStat(filename: string) {
+  private async getFileStat(
+    filename: string
+  ): Promise<{ size: number; mtime: Date } | null> {
     try {
-      return statSync(join(this.mediaPath, filename));
+      const stat = (await this.client.stat(
+        `${this.config.folder}/${filename}`
+      )) as any;
+      return { size: stat.size, mtime: new Date(stat.lastmod) };
     } catch {
       return null;
     }
@@ -165,8 +194,10 @@ export class NextcloudAddon {
     }
 
     const { season, episode } = parsedId;
-    const seasonNum = season !== undefined ? parseInt(season, 10) : undefined;
-    const episodeNum = episode !== undefined ? parseInt(episode, 10) : undefined;
+    const seasonNum =
+      season !== undefined ? parseInt(season, 10) : undefined;
+    const episodeNum =
+      episode !== undefined ? parseInt(episode, 10) : undefined;
 
     let titles: string[] = [];
     let year: number | undefined;
@@ -191,7 +222,7 @@ export class NextcloudAddon {
 
     if (titles.length === 0) return [];
 
-    const files = this.listVideoFiles();
+    const files = await this.listVideoFiles();
     const matches = files.filter((f) =>
       fileMatchesContent(f, titles, year, seasonNum, episodeNum)
     );
@@ -200,19 +231,18 @@ export class NextcloudAddon {
       `Found ${matches.length} file(s) for ${id}: ${matches.join(', ')}`
     );
 
-    return matches.map((filename) => {
-      const stat = this.getFileStat(filename);
-      return {
-        name: 'Nextcloud',
-        description: filename,
-        url: this.getStreamUrl(filename),
-        behaviorHints: {
-          filename,
-          videoSize: stat?.size,
-          notWebReady: false,
-        },
-      };
-    });
+    const stats = await Promise.all(matches.map((f) => this.getFileStat(f)));
+
+    return matches.map((filename, i) => ({
+      name: 'Nextcloud',
+      description: filename,
+      url: this.getStreamUrl(filename),
+      behaviorHints: {
+        filename,
+        videoSize: stats[i]?.size,
+        notWebReady: false,
+      },
+    }));
   }
 
   async getCatalog(
@@ -227,15 +257,17 @@ export class NextcloudAddon {
     const search = parsedExtras?.search?.toLowerCase();
     const skip = parsedExtras?.skip ?? 0;
 
-    let files = this.listVideoFiles();
+    let files = await this.listVideoFiles();
     if (search) {
       files = files.filter((f) => f.toLowerCase().includes(search));
     }
 
-    return files.slice(skip, skip + 100).map((filename) => {
-      const stat = this.getFileStat(filename);
-      return this.createMetaPreview(filename, stat?.size);
-    });
+    const page = files.slice(skip, skip + 100);
+    const stats = await Promise.all(page.map((f) => this.getFileStat(f)));
+
+    return page.map((filename, i) =>
+      this.createMetaPreview(filename, stats[i]?.size)
+    );
   }
 
   async getMeta(type: string, id: string): Promise<Meta> {
@@ -246,7 +278,7 @@ export class NextcloudAddon {
     const filename = this.idToFilename(id);
     if (!filename) throw new Error('Invalid Nextcloud meta ID');
 
-    const stat = this.getFileStat(filename);
+    const stat = await this.getFileStat(filename);
     if (!stat) throw new Error(`File not found: ${filename}`);
 
     const streamUrl = this.getStreamUrl(filename);
@@ -293,11 +325,8 @@ export class NextcloudAddon {
 
 /** Strip extension and quality tags, replace dots/underscores with spaces */
 function cleanFilename(filename: string): string {
-  // Remove extension
   const base = filename.replace(/\.[^.]+$/, '');
-  // Replace dots and underscores with spaces
   const spaced = base.replace(/[._]/g, ' ');
-  // Remove common quality/source tags and everything after
   return spaced
     .replace(
       /\s*(1080p|720p|480p|2160p|4K|UHD|BluRay|BDRip|WEBRip|WEB-DL|HDRip|HDTV|DVDRip|x264|x265|HEVC|H\.264|H\.265|AAC|DTS|DD5|AC3|Remux|PROPER|REPACK).*$/i,
@@ -315,10 +344,8 @@ function fileMatchesContent(
   episode?: number
 ): boolean {
   const lower = filename.toLowerCase();
-  // Normalise filename: replace separators, remove non-alphanumeric
   const normalized = lower.replace(/[._\-]/g, ' ');
 
-  // Check title match (normalise titles the same way)
   const normalizedTitles = titles.map((t) =>
     t
       .toLowerCase()
@@ -334,7 +361,6 @@ function fileMatchesContent(
 
   if (!titleMatch) return false;
 
-  // Series: require season + episode match
   if (season !== undefined && episode !== undefined) {
     const sPad = season.toString().padStart(2, '0');
     const ePad = episode.toString().padStart(2, '0');
@@ -347,7 +373,6 @@ function fileMatchesContent(
     return patterns.some((p) => lower.includes(p));
   }
 
-  // Movie: verify year if both sides have one
   if (year) {
     const yearMatch = filename.match(/\b(19|20)\d{2}\b/);
     if (yearMatch) {
