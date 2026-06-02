@@ -52,6 +52,7 @@ import { StreamAsiaPreset } from './streamasia.js';
 import { MoreLikeThisPreset } from './moreLikeThis.js';
 import { GDriveAPI } from '../builtins/gdrive/index.js';
 import { GDrivePreset } from './gdrive.js';
+import { NextcloudPreset } from './nextcloud.js';
 import { ContentDeepDivePreset } from './contentDeepDive.js';
 import { AICompanionPreset } from './aiCompanion.js';
 import { GoogleOAuth } from '../builtins/gdrive/api.js';
@@ -105,6 +106,7 @@ let PRESET_LIST: string[] = [
   'jackett',
   'nzbhydra',
   'stremio-gdrive',
+  'nextcloud-media',
   'jackettio',
   'peerflix',
   'orion',
@@ -293,6 +295,8 @@ export class PresetManager {
         return AICompanionPreset;
       case 'stremio-gdrive':
         return GDrivePreset;
+      case 'nextcloud-media':
+        return NextcloudPreset;
       case 'torbox-search':
         return TorBoxSearchPreset;
       case 'torznab':
