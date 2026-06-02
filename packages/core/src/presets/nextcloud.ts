@@ -20,15 +20,27 @@ export class NextcloudPreset extends Preset {
       constants.META_RESOURCE,
     ];
 
-    const options: Option[] = (
-      appConfig.builtins.nextcloud?.mediaPath
-        ? baseOptions(
+    const basePath = appConfig.builtins.nextcloud?.mediaPath;
+
+    const options: Option[] = basePath
+      ? [
+          {
+            id: 'mediaPath',
+            name: 'Media Path',
+            description:
+              'Absolute path to the directory containing your media files. Must be within the base directory configured by the server admin.',
+            type: 'string',
+            required: true,
+            default: basePath,
+            showInSimpleMode: true,
+          },
+          ...baseOptions(
             'Nextcloud Media',
             supportedResources,
             appConfig.presets.defaultTimeout
-          ).filter((o) => o.id !== 'url')
-        : []
-    );
+          ).filter((o) => o.id !== 'url'),
+        ]
+      : [];
 
     return {
       ID: 'nextcloud-media',
@@ -44,7 +56,7 @@ export class NextcloudPreset extends Preset {
       SUPPORTED_SERVICES: [],
       OPTIONS: options,
       BUILTIN: true,
-      DISABLED: !appConfig.builtins.nextcloud?.mediaPath
+      DISABLED: !basePath
         ? {
             reason:
               'Not configured. **Admins:** set the Media Path in [Settings → Built-ins](/dashboard/settings?tab=builtins).',
@@ -83,6 +95,7 @@ export class NextcloudPreset extends Preset {
   }
 
   private static generateManifestUrl(options: Record<string, any>): string {
-    return `${this.DEFAULT_URL}/manifest.json`;
+    const mediaPath = options.mediaPath || '';
+    return `${this.DEFAULT_URL}/manifest.json?mediaPath=${encodeURIComponent(mediaPath)}`;
   }
 }

@@ -61,16 +61,16 @@ export function getNextcloudMimeType(filename: string): string {
 export class NextcloudAddon {
   private mediaPath: string;
 
-  constructor() {
-    const mediaPath = appConfig.builtins.nextcloud?.mediaPath;
+  constructor(mediaPath: string) {
     if (!mediaPath) throw new Error('Nextcloud media path is not configured');
     this.mediaPath = mediaPath;
   }
 
   private getStreamUrl(filename: string): string {
     const token = getNextcloudMediaToken();
+    const base64Path = Buffer.from(this.mediaPath).toString('base64url');
     const encoded = encodeURIComponent(filename);
-    return `${appConfig.bootstrap.baseUrl}/nextcloud-media/${token}/files/${encoded}`;
+    return `${appConfig.bootstrap.baseUrl}/nextcloud-media/${token}/${base64Path}/files/${encoded}`;
   }
 
   private listVideoFiles(): string[] {

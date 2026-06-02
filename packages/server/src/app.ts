@@ -199,14 +199,18 @@ builtinsRouter.use('/nextcloud', nextcloud);
 app.use('/builtins', builtinsRouter);
 
 // Public Nextcloud media file server (token-protected, range-request capable)
+// URL: /nextcloud-media/:mediaToken/:base64MediaPath/files/:filename
+// base64MediaPath is the user-configured directory encoded as base64url
 interface NextcloudMediaParams {
   mediaToken: string;
+  base64MediaPath: string;
   filename: string;
 }
 app.get(
-  '/nextcloud-media/:mediaToken/files/:filename',
+  '/nextcloud-media/:mediaToken/:base64MediaPath/files/:filename',
   (req: Request<NextcloudMediaParams>, res: Response) => {
     const mediaToken = req.params.mediaToken;
+    const base64MediaPath = req.params.base64MediaPath;
     const filename = req.params.filename;
 
     if (!validateNextcloudMediaToken(mediaToken)) {
@@ -214,20 +218,35 @@ app.get(
       return;
     }
 
-    const mediaPath = appConfig.builtins.nextcloud?.mediaPath;
-    if (!mediaPath) {
+    const basePath = appConfig.builtins.nextcloud?.mediaPath;
+    if (!basePath) {
       res.status(503).json({ error: 'Nextcloud media path not configured' });
       return;
     }
 
+    // Decode the user-configured media path and validate it's within the base
+    let mediaPath: string;
+    try {
+      mediaPath = Buffer.from(base64MediaPath, 'base64url').toString();
+    } catch {
+      res.status(400).json({ error: 'Invalid media path encoding' });
+      return;
+    }
+    const resolvedMediaPath = path.resolve(mediaPath);
+    const resolvedBase = path.resolve(basePath);
+    if (!resolvedMediaPath.startsWith(resolvedBase + path.sep) && resolvedMediaPath !== resolvedBase) {
+      res.status(403).json({ error: 'Media path is outside the allowed base directory' });
+      return;
+    }
+
     const decodedFilename = decodeURIComponent(filename as string);
-    // Security: no path traversal
+    // Security: no path traversal in filename
     if (decodedFilename.includes('/') || decodedFilename.includes('\\') || decodedFilename.includes('..')) {
       res.status(400).json({ error: 'Invalid filename' });
       return;
     }
 
-    const filePath = path.join(mediaPath, decodedFilename);
+    const filePath = path.join(resolvedMediaPath, decodedFilename);
     if (!fs.existsSync(filePath)) {
       res.status(404).json({ error: 'File not found' });
       return;
