@@ -152,7 +152,7 @@ export class GDrivePreset extends Preset {
       ID: 'stremio-gdrive',
       NAME: 'Stremio GDrive',
       DESCRIPTION: 'Access content from your Google Drive in Stremio!',
-      LOGO: `https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/googledrive.svg`,
+      LOGO: `/assets/gdrive_logo.svg`,
       URL: [`${appConfig.bootstrap.internalUrl}/builtins/gdrive`],
       TIMEOUT:
         appConfig.builtins.gdrive.timeout ?? appConfig.presets.defaultTimeout,
