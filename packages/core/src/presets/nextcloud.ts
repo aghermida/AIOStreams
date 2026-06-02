@@ -31,7 +31,7 @@ export class NextcloudPreset extends Preset {
               'Absolute path to the directory containing your media files. Must be within the base directory configured by the server admin.',
             type: 'string',
             required: true,
-            default: basePath,
+            default: '',
             showInSimpleMode: true,
           },
           ...baseOptions(
