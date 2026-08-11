@@ -4,29 +4,36 @@ import {
   constants,
   createLogger,
   decryptString,
-  domainHasUserAgent,
-  Env,
+  resolveOverrideHeaders,
   appConfig,
   fromUrlSafeBase64,
-  getProxyAgent,
   getTimeTakenSincePoint,
-  shouldProxy,
-  canUseProxy,
+  makeUrlLogSafe,
+  rewriteRequestUrl,
+  resolveDispatcher,
+  getRedirectHop,
+  takeBasicAuthFromUrl,
+  MAX_REDIRECTS,
+  REQUEST_BODY_HEADERS,
+  validateCredentials,
+  hasPermission,
+  Permission,
+  downloadManager,
+  NzbTooLargeError,
+  BuiltinProxy,
+  streamRegistry,
+  proxyTargetKey,
 } from '@aiostreams/core';
 import { z } from 'zod';
 import { request, Dispatcher } from 'undici';
 import { pipeline } from 'stream/promises';
-import { createProxy, BuiltinProxyStats, BuiltinProxy } from '@aiostreams/core';
+import { Transform } from 'stream';
 import { requireAdmin } from '../../middlewares/auth.js';
 import { corsMiddleware } from '../../middlewares/cors.js';
 import { StaticFiles } from '../../app.js';
-import { Transform } from 'stream';
 
 const logger = createLogger('server');
 const router: Router = Router();
-
-// Create a singleton instance of BuiltinProxyStats
-const proxyStats = new BuiltinProxyStats();
 
 function sanitiseHeaderValue(value: string): string {
   return value.replace(/[^\t\x20-\x7e]/g, '');
@@ -53,6 +60,26 @@ function sanitiseHeaders(
   }
 
   return sanitised;
+}
+
+/**
+ * Byte offset a client's `Range` header asks for. Suffix ranges (`bytes=-N`)
+ * have no known start, so they read as 0.
+ */
+function rangeStart(header: string | undefined): number {
+  const match = /^bytes=(\d+)-/.exec((header ?? '').trim());
+  return match ? Number(match[1]) : 0;
+}
+
+/**
+ * Total size of the resource from a `Content-Range: bytes a-b/total` header.
+ * `Content-Length` is the length of the returned range on a 206, so using it
+ * would shrink the reported file size on every seek.
+ */
+function totalFromContentRange(header: string | string[] | undefined): number {
+  const value = Array.isArray(header) ? header[0] : header;
+  const match = /\/(\d+)\s*$/.exec(value ?? '');
+  return match ? Number(match[1]) : 0;
 }
 
 function copyHeaders(headers: Record<string, string | string[] | undefined>) {
@@ -106,49 +133,168 @@ const ProxyDataSchema = z.object({
   responseHeaders: z.record(z.string(), z.string()).optional(),
 });
 
-router.use(corsMiddleware);
+type ProxyAuth = z.infer<typeof ProxyAuthSchema>;
+type ProxyData = z.infer<typeof ProxyDataSchema>;
 
-// GET /stats — proxy statistics for the dashboard. Admin-only via the
-// dashboard session (the old `?auth=` query path is dropped). Machine-shaped:
-// raw epoch ms, `users` as an array. (Breaking change is acceptable per
-// 00-overview — this is an admin/self-hoster endpoint.)
-router.get(
-  '/stats',
-  requireAdmin,
-  async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      const allUserStats = await proxyStats.getAllUserStats();
-      const users = Array.from(allUserStats.entries()).map(
-        ([username, userStats]) => ({
-          username,
-          active: userStats.active,
-          history: userStats.history,
-        })
-      );
-      res.json({
-        users,
-        summary: {
-          totalActiveConnections: users.reduce(
-            (t, u) => t + u.active.length,
-            0
-          ),
-          totalHistoryConnections: users.reduce(
-            (t, u) => t + u.history.length,
-            0
-          ),
-          usersWithActiveConnections: users.filter((u) => u.active.length > 0)
-            .length,
-          usersWithHistory: users.filter((u) => u.history.length > 0).length,
-        },
-      });
-    } catch (error) {
-      logger.error('Failed to get proxy stats', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      next(error);
-    }
+/**
+ * Decode the `{mode}.{auth}.{data}` path segment, then authenticate and
+ * authorise the caller. Throws {@link APIError} (mapped to the right status by
+ * the route's catch) on any malformed / unauthenticated / unauthorised request.
+ */
+function decodeAndAuthorizeRequest(
+  encryptedAuthAndData: string,
+  requestId: string
+): { auth: ProxyAuth; data: ProxyData } {
+  const parts = encryptedAuthAndData.split('.');
+  let encodedAuth: string;
+  let encodedData: string;
+  let encodeMode: 'e' | 'u';
+  if (parts.length === 2) {
+    encodeMode = 'e';
+    [encodedAuth, encodedData] = parts;
+  } else if (parts.length === 3) {
+    encodeMode = parts[0] as 'e' | 'u';
+    [, encodedAuth, encodedData] = parts;
+  } else {
+    throw new APIError(
+      constants.ErrorCode.BAD_REQUEST,
+      undefined,
+      'Invalid encrypted auth and data'
+    );
   }
-);
+
+  let rawAuth: string | undefined;
+  let rawData: string | undefined;
+  if (encodeMode === 'e') {
+    rawAuth = decryptString(encodedAuth).data ?? undefined;
+    rawData = decryptString(encodedData).data ?? undefined;
+  } else {
+    rawAuth = fromUrlSafeBase64(encodedAuth);
+    rawData = fromUrlSafeBase64(encodedData);
+  }
+
+  if (!rawData || !rawAuth) {
+    logger.error(`[${requestId}] Decryption failed`);
+    throw new APIError(
+      constants.ErrorCode.ENCRYPTION_ERROR,
+      undefined,
+      'Could not decrypt data or auth'
+    );
+  }
+
+  const data = ProxyDataSchema.parse(JSON.parse(rawData));
+  const auth = ProxyAuthSchema.parse(JSON.parse(rawAuth));
+
+  if (!validateCredentials(auth.username, auth.password)) {
+    logger.warn(`[${requestId}] Authentication failed`, {
+      username: auth.username,
+    });
+    throw new APIError(
+      constants.ErrorCode.UNAUTHORIZED,
+      undefined,
+      'Invalid auth'
+    );
+  }
+
+  if (!hasPermission(auth.username, Permission.Proxy)) {
+    logger.warn(`[${requestId}] Proxy access denied`, {
+      username: auth.username,
+    });
+    throw new APIError(
+      constants.ErrorCode.FORBIDDEN,
+      undefined,
+      'Proxy access not permitted for this user'
+    );
+  }
+
+  return { auth, data };
+}
+
+/**
+ * Build the outbound header set for an upstream request to `urlObj`: client
+ * headers + the caller's `requestHeaders`, then per-host / `[context]` override
+ * headers, then any URL userinfo folded into a Basic auth header (and stripped
+ * from `urlObj`). Header names are lowercased. Mutates `urlObj`.
+ */
+function buildOutboundHeaders(
+  clientHeaders: Record<string, string | string[] | undefined>,
+  requestHeaders: Record<string, string> | undefined,
+  urlObj: URL,
+  context?: 'nzb_grabs'
+): Record<string, string | string[] | undefined> {
+  const headers = Object.fromEntries(
+    Object.entries({ ...clientHeaders, ...requestHeaders }).map(
+      ([key, value]) => [key.toLowerCase(), value]
+    )
+  );
+  for (const [name, value] of Object.entries(
+    resolveOverrideHeaders(urlObj, context)
+  )) {
+    headers[name.toLowerCase()] = value;
+  }
+  const basicAuth = takeBasicAuthFromUrl(urlObj);
+  if (basicAuth) {
+    headers['authorization'] = basicAuth;
+  }
+  return headers;
+}
+
+/**
+ * Serve a NZB grab (`type: 'nzb'`) from the shared disk-backed grab
+ * cache. Throws {@link APIError} on failure.
+ */
+async function serveNzbFromGrabCache(
+  method: string,
+  res: Response,
+  data: ProxyData,
+  requestId: string,
+  username: string
+): Promise<void> {
+  let nzb: Buffer;
+  try {
+    nzb = await downloadManager.fetchNzb(data.url);
+  } catch (error) {
+    if (error instanceof NzbTooLargeError) {
+      throw new APIError(constants.ErrorCode.BAD_REQUEST, 413, error.message);
+    }
+    logger.error(`[${requestId}] Failed to grab NZB`, {
+      username,
+      url: makeUrlLogSafe(data.url),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new APIError(
+      constants.ErrorCode.INTERNAL_SERVER_ERROR,
+      502,
+      'Failed to grab NZB'
+    );
+  }
+
+  res.status(200);
+  res.set('Content-Type', 'application/x-nzb');
+  res.set('Content-Length', String(nzb.length));
+  if (data.filename) {
+    res.set(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(data.filename)}"`
+    );
+  }
+  // Let any caller-supplied response headers win, matching the streaming path.
+  if (data.responseHeaders) {
+    res.set(data.responseHeaders);
+  }
+  logger.debug(`[${requestId}] Served NZB from grab cache`, {
+    username,
+    bytes: nzb.length,
+    url: makeUrlLogSafe(data.url),
+  });
+  if (method === 'HEAD') {
+    res.end();
+  } else {
+    res.end(nzb);
+  }
+}
+
+router.use(corsMiddleware);
 
 // POST /generate — produce a proxified URL. Admin-only (dashboard session).
 // Credentials are injected server-side from AIOSTREAMS_AUTH for the session
@@ -222,105 +368,31 @@ router.all(
     let auth: { username: string; password: string } | undefined;
     let data: z.infer<typeof ProxyDataSchema> | undefined;
     let clientIp: string | undefined;
+    let session: ReturnType<typeof streamRegistry.open> | undefined;
 
     try {
-      // decrypt and authenticate the request
-      const { encryptedAuthAndData } = req.params;
-      // const [encodeMode, encryptedAuth, encryptedData] =
-      //   encryptedAuthAndData.split('.');
-      const parts = encryptedAuthAndData.split('.');
-      let encodedAuth: string | undefined;
-      let encodedData: string | undefined;
-      let encodeMode: 'e' | 'u' | undefined;
-      if (parts.length == 2) {
-        encodeMode = 'e';
-        encodedAuth = parts[0];
-        encodedData = parts[1];
-      } else if (parts.length == 3) {
-        encodeMode = parts[0] as 'e' | 'u';
-        encodedAuth = parts[1];
-        encodedData = parts[2];
-      } else {
-        throw new APIError(
-          constants.ErrorCode.BAD_REQUEST,
-          undefined,
-          'Invalid encrypted auth and data'
-        );
-      }
+      const { auth: decodedAuth, data: decodedData } =
+        decodeAndAuthorizeRequest(req.params.encryptedAuthAndData, requestId);
+      auth = decodedAuth;
+      data = decodedData;
       const filename = req.params.filename as string | undefined;
 
-      let rawData: string | undefined;
-      let rawAuth: string | undefined;
-      if (encodeMode === 'e') {
-        const { data: streamData } = decryptString(encodedData);
-        const { data: authData } = decryptString(encodedAuth);
-        rawData = streamData ?? undefined;
-        rawAuth = authData ?? undefined;
-      } else {
-        rawAuth = fromUrlSafeBase64(encodedAuth);
-        rawData = fromUrlSafeBase64(encodedData);
-      }
-
-      if (!rawData || !rawAuth) {
-        logger.error(`[${requestId}] Decryption failed`);
-        next(
-          new APIError(
-            constants.ErrorCode.ENCRYPTION_ERROR,
-            undefined,
-            'Could not decrypt data or auth'
-          )
-        );
-        return;
-      }
-
-      data = ProxyDataSchema.parse(JSON.parse(rawData));
-      auth = ProxyAuthSchema.parse(JSON.parse(rawAuth));
-
       if (
-        (!appConfig.bootstrap.auth?.has(auth.username) ||
-          appConfig.bootstrap.auth?.get(auth.username) !== auth.password) &&
-        (auth.username !== constants.PUBLIC_NZB_PROXY_USERNAME ||
-          !appConfig.nzbProxy.publicEnabled)
+        data.type === 'nzb' &&
+        (req.method === 'GET' || req.method === 'HEAD')
       ) {
-        logger.warn(`[${requestId}] Authentication failed`, {
-          username: auth.username,
-        });
-        next(
-          new APIError(
-            constants.ErrorCode.UNAUTHORIZED,
-            undefined,
-            'Invalid auth'
-          )
-        );
-        return;
-      }
-
-      if (
-        auth.username !== constants.PUBLIC_NZB_PROXY_USERNAME &&
-        !canUseProxy(auth.username)
-      ) {
-        logger.warn(`[${requestId}] Proxy access denied`, {
-          username: auth.username,
-        });
-        next(
-          new APIError(
-            constants.ErrorCode.FORBIDDEN,
-            undefined,
-            'Proxy access not permitted for this user'
-          )
+        await serveNzbFromGrabCache(
+          req.method,
+          res,
+          data,
+          requestId,
+          auth.username
         );
         return;
       }
 
       // Track the connection
-      clientIp =
-        req.requestIp || req.ip || req.socket.remoteAddress || 'unknown';
-      const timestamp = Date.now();
-
-      const connectionLimit =
-        appConfig.bootstrap.authConnectionLimits?.get(auth.username) ??
-        appConfig.bootstrap.authConnectionLimits?.get('*') ??
-        0;
+      clientIp = req.requestIp || req.ip || req.socket.remoteAddress;
 
       // prepare and execute upstream request
       const clientHeaders = copyHeaders(req.headers);
@@ -329,187 +401,114 @@ router.all(
         req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
       const isGetRequest = req.method === 'GET';
 
-      let sizeLimiter;
-      let bytesRead = 0;
-      if (auth.username === constants.PUBLIC_NZB_PROXY_USERNAME) {
-        if (appConfig.nzbProxy.maxSize > 0) {
-          sizeLimiter = new Transform({
-            transform(chunk, encoding, callback) {
-              bytesRead += chunk.length;
-
-              if (bytesRead > appConfig.nzbProxy.maxSize) {
-                callback(new Error('Content too large'));
-              } else {
-                callback(null, chunk);
-              }
-            },
+      if (isGetRequest) {
+        // Without probes, a viewer that vanishes without a FIN leaves the
+        // response hanging on a socket nothing will ever close.
+        req.socket.setKeepAlive(true, 60_000);
+        // Seeks join the session already open for this (user, ip, target)
+        // and skip admission.
+        session = streamRegistry.open({
+          transport: 'proxy',
+          username: auth.username,
+          clientIp,
+          targetKey: proxyTargetKey(data.url),
+          filename,
+          displayUrl: makeUrlLogSafe(data.url),
+          // Where this read starts, so a seek advances the progress bar
+          // instead of restarting it.
+          start: rangeStart(req.headers.range),
+        });
+        if (!session.ok) {
+          logger.warn(`[${requestId}] Proxy stream refused`, {
+            username: auth.username,
+            clientIp,
+            reason: session.verdict.reason,
           });
-        }
-        if (data.type !== 'nzb') {
-          logger.warn(
-            `[${requestId}] Public NZB proxy can only be used for NZB files`,
-            { dataType: data.type }
-          );
-          next(
-            new APIError(
-              constants.ErrorCode.FORBIDDEN,
-              undefined,
-              'Public NZB proxy can only be used for NZB files'
-            )
-          );
+          res
+            .status(302)
+            .redirect(`/static/${StaticFiles.CONTENT_PROXY_LIMIT_REACHED}`);
           return;
         }
-      }
-
-      if (isGetRequest) {
-        if (connectionLimit > 0) {
-          const activeConnections = await proxyStats.getActiveConnections(
-            auth.username
-          );
-          if (activeConnections.length >= connectionLimit) {
-            logger.warn(`[${requestId}] Connection limit reached`, {
-              username: auth.username,
-              clientIp,
-              connectionLimit,
-            });
-            res
-              .status(302)
-              .redirect(`/static/${StaticFiles.CONTENT_PROXY_LIMIT_REACHED}`);
-            return;
-          }
-        }
-        proxyStats
-          .addConnection(
-            auth.username,
-            clientIp,
-            data.url,
-            timestamp,
-            requestId,
-            filename
-          )
-          .catch((error) =>
-            logger.warn(`[${requestId}] Failed to add connection to stats`, {
-              error: error instanceof Error ? error.message : String(error),
-            })
-          );
+        // A full-buffered player never notices a clean FIN.
+        session.handle.onKill(() => {
+          upstreamResponse?.body?.destroy();
+          if (!req.socket.destroyed) req.socket.resetAndDestroy();
+        });
       }
 
       const upstreamStartTime = Date.now();
       let currentUrl = data.url;
 
-      const INTERNAL_FORWARDED_PARAMS = ['fbk'] as const;
-      if (appConfig.bootstrap.baseUrl) {
-        try {
-          const upstreamUrlObj = new URL(currentUrl);
-          if (
-            upstreamUrlObj.origin ===
-            new URL(appConfig.bootstrap.baseUrl).origin
-          ) {
-            let forwarded = false;
-            for (const param of INTERNAL_FORWARDED_PARAMS) {
-              const val = req.query[param];
-              if (val && typeof val === 'string') {
-                upstreamUrlObj.searchParams.set(param, val);
-                forwarded = true;
-              }
-            }
-            if (forwarded) currentUrl = upstreamUrlObj.toString();
-          }
-        } catch {
-          // ignore malformed URLs
-        }
-      }
-
-      const maxRedirects = 10;
       let redirectCount = 0;
       let method = req.method as Dispatcher.HttpMethod;
+      // Set once a redirect rewrites the method to GET: the client body was
+      // consumed on the first hop and must not be resent or described.
+      let bodyDropped = false;
 
-      while (redirectCount < maxRedirects) {
-        const urlObj = new URL(currentUrl);
-        if (
-          appConfig.bootstrap.baseUrl &&
-          urlObj.origin === appConfig.bootstrap.baseUrl
-        ) {
-          const internalUrl = new URL(appConfig.bootstrap.internalUrl);
-          urlObj.protocol = internalUrl.protocol;
-          urlObj.host = internalUrl.host;
-          urlObj.port = internalUrl.port;
-        }
-
-        if (appConfig.http.requestUrlMappings) {
-          for (const [key, value] of Object.entries(
-            appConfig.http.requestUrlMappings
-          )) {
-            if (urlObj.origin === key) {
-              const mappedUrl = new URL(value);
-              urlObj.protocol = mappedUrl.protocol;
-              urlObj.host = mappedUrl.host;
-              urlObj.port = mappedUrl.port;
-              break;
-            }
+      while (true) {
+        const grabContext = data.type === 'nzb' ? 'nzb_grabs' : undefined;
+        const urlObj = rewriteRequestUrl(new URL(currentUrl));
+        const { dispatcher, useProxy, proxyIndex } = resolveDispatcher(
+          urlObj,
+          grabContext
+        );
+        const headers = buildOutboundHeaders(
+          clientHeaders,
+          data.requestHeaders,
+          urlObj,
+          grabContext
+        );
+        if (bodyDropped) {
+          for (const header of REQUEST_BODY_HEADERS) {
+            delete headers[header];
           }
         }
-        const { useProxy, proxyIndex } = shouldProxy(urlObj);
-        const proxyAgent = useProxy
-          ? getProxyAgent(appConfig.http.addonProxy[proxyIndex])
-          : undefined;
-        const headers = Object.fromEntries(
-          Object.entries({ ...clientHeaders, ...data.requestHeaders }).map(
-            ([key, value]) => [key.toLowerCase(), value]
-          )
-        );
-        const domainUserAgent = domainHasUserAgent(urlObj);
-        if (domainUserAgent) {
-          headers['user-agent'] = domainUserAgent;
-        }
-        if (urlObj.username && urlObj.password) {
-          const basicAuth = Buffer.from(
-            `${decodeURIComponent(urlObj.username)}:${decodeURIComponent(
-              urlObj.password
-            )}`
-          ).toString('base64');
-          headers['authorization'] = `Basic ${basicAuth}`;
-          urlObj.username = '';
-          urlObj.password = '';
-        }
         currentUrl = urlObj.toString();
-        logger.debug(`[${requestId}] Making upstream request`, {
-          username: auth.username,
-          method: method,
-          tunneled: useProxy
-            ? `true${proxyIndex > 1 ? ` (${proxyIndex + 1})` : ''}`
-            : 'false',
-          range: headers['range'],
-          url: currentUrl,
-        });
-        logger.silly(`[${requestId}] Headers for upstream request`, {
-          headers: JSON.stringify(headers),
-        });
+        logger.debug(
+          {
+            requestId,
+            username: auth.username,
+            url: makeUrlLogSafe(currentUrl),
+            method,
+            tunneled: dispatcher ? `true (proxy index ${proxyIndex})` : 'false',
+            ...(appConfig.logging.logSensitiveInfo
+              ? {
+                  headers,
+                  dispatcher: useProxy
+                    ? appConfig.http.addonProxy[proxyIndex]
+                    : undefined,
+                }
+              : {}),
+          },
+          'Making upstream request'
+        );
+
         upstreamResponse = await request(currentUrl, {
           method: method,
           headers: headers,
-          dispatcher: proxyAgent,
-          body: isBodyRequest ? req : undefined,
+          dispatcher: dispatcher,
+          body: isBodyRequest && !bodyDropped ? req : undefined,
           bodyTimeout: 0,
           headersTimeout: 0,
         });
 
-        if ([301, 302, 303, 307, 308].includes(upstreamResponse.statusCode)) {
-          redirectCount++;
-          const location = upstreamResponse.headers['location'];
-          if (!location || typeof location !== 'string') {
-            break; // No location header, stop redirecting
-          }
-          currentUrl = new URL(location, currentUrl).href;
-
-          if ([301, 302, 303].includes(upstreamResponse.statusCode)) {
-            method = 'GET';
-          }
-          // For 307, 308, method remains the same
-          continue;
+        const hop = getRedirectHop(
+          upstreamResponse.statusCode,
+          upstreamResponse.headers['location'],
+          currentUrl,
+          method
+        );
+        if (!hop || redirectCount >= MAX_REDIRECTS) {
+          break;
         }
-
-        break; // Not a redirect, exit loop
+        redirectCount++;
+        // Release the pooled connection held by the intermediate response.
+        await upstreamResponse.body.dump().catch(() => {});
+        currentUrl = hop.location;
+        method = hop.method as Dispatcher.HttpMethod;
+        if (hop.methodChanged) {
+          bodyDropped = true;
+        }
       }
 
       if (!upstreamResponse) {
@@ -526,35 +525,6 @@ router.all(
         return;
       }
       const upstreamDuration = getTimeTakenSincePoint(upstreamStartTime);
-
-      if (auth.username === constants.PUBLIC_NZB_PROXY_USERNAME) {
-        // size check
-        if (appConfig.nzbProxy.maxSize > 0) {
-          const contentLengthHeader = upstreamResponse.headers['content-length']
-            ? Array.isArray(upstreamResponse.headers['content-length'])
-              ? upstreamResponse.headers['content-length'][0]
-              : upstreamResponse.headers['content-length']
-            : undefined;
-          const contentLength = contentLengthHeader
-            ? parseInt(contentLengthHeader, 10)
-            : 0;
-          const maxSize = appConfig.nzbProxy.maxSize;
-          if (maxSize > 0 && contentLength > maxSize) {
-            logger.warn(`[${requestId}] Public NZB proxy size limit exceeded`, {
-              contentLength,
-              maxSize,
-            });
-            next(
-              new APIError(
-                constants.ErrorCode.FORBIDDEN,
-                undefined,
-                'Content size exceeds public NZB proxy limit'
-              )
-            );
-            return;
-          }
-        }
-      }
 
       // forward upstream response to client
       res.set(sanitiseHeaders(upstreamResponse.headers));
@@ -573,6 +543,15 @@ router.all(
         targetUrl: currentUrl,
       });
 
+      if (session?.ok) {
+        // Content-Range carries the whole file; Content-Length only this range.
+        const declared = Number(upstreamResponse.headers['content-length']);
+        const total =
+          totalFromContentRange(upstreamResponse.headers['content-range']) ||
+          (Number.isFinite(declared) ? declared : 0);
+        session.handle.setInfo({ size: total || undefined });
+      }
+
       if (req.method === 'HEAD') {
         res.end();
       } else {
@@ -585,12 +564,17 @@ router.all(
               resDestroyed: res.destroyed,
             }
           );
+        } else if (session?.ok) {
+          const handle = session.handle;
+          const counter = new Transform({
+            transform(chunk, _enc, cb) {
+              handle.addBytes(chunk.length);
+              cb(null, chunk);
+            },
+          });
+          await pipeline(upstreamResponse.body, counter, res);
         } else {
-          if (sizeLimiter) {
-            await pipeline(upstreamResponse.body, sizeLimiter, res);
-          } else {
-            await pipeline(upstreamResponse.body, res);
-          }
+          await pipeline(upstreamResponse.body, res);
         }
       }
 
@@ -598,6 +582,13 @@ router.all(
         username: auth.username,
       });
     } catch (error) {
+      if (error instanceof APIError) {
+        if (!res.headersSent) {
+          next(error);
+        }
+        return;
+      }
+
       const totalDuration = Date.now() - startTime;
 
       if (upstreamResponse && !upstreamResponse.body.destroyed) {
@@ -646,15 +637,8 @@ router.all(
         });
       }
     } finally {
-      if (auth && clientIp && data) {
-        proxyStats
-          .endConnection(auth.username, clientIp, data.url, requestId)
-          .catch((statsError) =>
-            logger.warn(`[${requestId}] Failed to end connection in stats`, {
-              error: statsError,
-            })
-          );
-      }
+      // Ends this request only; the session idles out on its own.
+      if (session?.ok) session.handle.close();
     }
   }
 );

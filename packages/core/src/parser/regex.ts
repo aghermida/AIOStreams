@@ -61,14 +61,17 @@ export const PARSE_REGEX: PARSE_REGEX = {
     '144p': createRegex('(bd|hd|m)?(144(p|i)?)'),
   },
   qualities: {
-    'BluRay REMUX': createRegex('(bd|br|b|uhd)?remux'),
+    'BluRay REMUX': createRegex('(?<!dvd.*)(bd|br|b|uhd)?remux(?!.*dvd)'),
     BluRay: createRegex(
-      '(?<!remux.*)(bd|blu[ .\\-_]?ray|((bd|br)[ .\\-_]?rip))(?!.*remux)'
+      '(?<!remux.*)((bd|blu[ .\\-_]?ray)([ .\\-_]?rip)?|br[ .\\-_]?rip)(?!.*remux)'
     ),
     'WEB-DL': createRegex('web[ .\\-_]?(dl)?(?![ .\\-_]?(rip|DLRip|cam))'),
     WEBRip: createRegex('web[ .\\-_]?rip'),
     HDRip: createRegex('hd[ .\\-_]?rip|web[ .\\-_]?dl[ .\\-_]?rip'),
     'HC HD-Rip': createRegex('hc|hd[ .\\-_]?rip'),
+    'DVD REMUX': createRegex(
+      '(hd[ .\\-_]?)?dvd.*remux|remux.*(hd[ .\\-_]?)?dvd'
+    ),
     DVDRip: createRegex('dvd[ .\\-_]?(rip|mux|r|full|5|9)?'),
     HDTV: createRegex(
       '(hd|pd)tv|tv[ .\\-_]?rip|hdtv[ .\\-_]?rip|dsr(ip)?|sat[ .\\-_]?rip'
@@ -89,7 +92,8 @@ export const PARSE_REGEX: PARSE_REGEX = {
     DV: createRegex('do?(lby)?[ .\\-_]?vi?(sion)?(?:[ .\\-_]?atmos)?|dv'),
     '3D': createRegex('(bd)?(3|three)[ .\\-_]?(d(imension)?(al)?)'),
     IMAX: createRegex('imax'),
-    AI: createRegex('ai|(ai)?(upscal(ed?|ing)|enhanced?|re[ .\\-_]?graded?)'),
+    AI: createRegex('ai|ai(enhanced?|re[ .\\-_]?graded?)'),
+    Upscaled: createRegex('(ai)?(uprez|ups(uhd|cal(ed?|ing)(uhd)?))(ai)?'),
     SDR: createRegex('sdr'),
     'H-OU': createRegex('h?(alf)?[ .\\-_]?(ou|over[ .\\-_]?under)'),
     'H-SBS': createRegex('h?(alf)?[ .\\-_]?(sbs|side[ .\\-_]?by[ .\\-_]?side)'),

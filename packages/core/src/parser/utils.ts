@@ -4,15 +4,58 @@ import { MetadataTitle } from '../metadata/utils.js';
 
 const logger = createLogger('parser');
 
-const umlautMap: Record<string, string> = {
+// Language-specific digraph transliterations, applied before the generic
+// fold.
+const germanDigraphMap: Record<string, string> = {
   Ä: 'Ae',
   ä: 'ae',
   Ö: 'Oe',
   ö: 'oe',
   Ü: 'Ue',
   ü: 'ue',
-  ß: 'ss',
 };
+const nordicDigraphMap: Record<string, string> = {
+  Å: 'Aa',
+  å: 'aa',
+};
+const languageDigraphMaps: Record<string, Record<string, string>> = {
+  de: germanDigraphMap,
+  da: nordicDigraphMap,
+  no: nordicDigraphMap,
+  nb: nordicDigraphMap,
+  nn: nordicDigraphMap,
+};
+
+// Base letters that NFD cannot decompose, folded to the ASCII forms release
+// names use.
+const asciiFoldMap: Record<string, string> = {
+  ß: 'ss',
+  ı: 'i',
+  ø: 'o',
+  Ø: 'O',
+  ł: 'l',
+  Ł: 'L',
+  đ: 'd',
+  Đ: 'D',
+  æ: 'ae',
+  Æ: 'Ae',
+  œ: 'oe',
+  Œ: 'Oe',
+  ð: 'd',
+  Ð: 'D',
+  þ: 'th',
+  Þ: 'Th',
+};
+
+function foldToAscii(title: string, language?: string): string {
+  const digraphMap = language ? languageDigraphMaps[language] : undefined;
+  return (
+    digraphMap ? title.replace(/[ÄäÖöÜüÅå]/g, (c) => digraphMap[c] ?? c) : title
+  )
+    .replace(/[ßıøØłŁđĐæÆœŒðÐþÞ]/g, (c) => asciiFoldMap[c])
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
 
 type TitleMatchOptions = {
   threshold: number;
@@ -145,21 +188,27 @@ export function preprocessTitle(
   return preprocessedTitle;
 }
 
-export function normaliseTitle(title: string) {
-  return title
-    .replace(/[ÄäÖöÜüß]/g, (c) => umlautMap[c])
-    .replace(/&/g, 'and')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\p{L}\p{N}+]/gu, '')
-    .toLowerCase();
+// Collapse digraph transliterations so releases named either way
+// produce the same matching key.
+function collapseDigraphs(text: string): string {
+  return text
+    .replace(/ae/g, 'a')
+    .replace(/oe/g, 'o')
+    .replace(/ue/g, 'u')
+    .replace(/aa/g, 'a');
 }
 
-export function cleanTitle(title: string) {
-  // replace German umlauts with ASCII equivalents, then normalize to NFD
-  let cleaned = title
-    .replace(/[ÄäÖöÜüß]/g, (c) => umlautMap[c])
-    .normalize('NFD');
+export function normaliseTitle(title: string) {
+  return collapseDigraphs(
+    foldToAscii(title)
+      .replace(/&/g, 'and')
+      .replace(/[^\p{L}\p{N}+]/gu, '')
+      .toLowerCase()
+  );
+}
+
+export function cleanTitle(title: string, language?: string) {
+  let cleaned = foldToAscii(title, language);
 
   for (const char of ['♪', '♫', '★', '☆', '♡', '♥', '-']) {
     cleaned = cleaned.replaceAll(char, ' ');
@@ -167,7 +216,6 @@ export function cleanTitle(title: string) {
 
   return cleaned
     .replace(/&/g, 'and')
-    .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
     .replace(/[^\p{L}\p{N}\s]/gu, '') // Remove remaining special chars
     .replace(/\s+/g, ' ') // Normalise spaces
     .toLowerCase()

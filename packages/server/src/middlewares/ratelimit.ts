@@ -137,14 +137,14 @@ const loginRateLimiter = lazyLimiter(
   'auth-login'
 );
 
+const oidcRateLimiter = lazyLimiter(
+  () => appConfig.rateLimits.oidc,
+  'auth-oidc'
+);
+
 const staticRateLimiter = lazyLimiter(
   () => appConfig.rateLimits.static,
   'static'
-);
-
-const easynewsNzbRateLimiter = lazyLimiter(
-  () => appConfig.rateLimits.easynewsNzb,
-  'easynews-nzb'
 );
 
 export {
@@ -159,6 +159,6 @@ export {
   stremioSubtitleRateLimiter,
   stremioMetaRateLimiter,
   staticRateLimiter,
-  easynewsNzbRateLimiter,
   loginRateLimiter,
+  oidcRateLimiter,
 };

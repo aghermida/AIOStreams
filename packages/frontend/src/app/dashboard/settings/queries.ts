@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryKey,
+} from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
 export type SettingsUiKind =
@@ -18,7 +23,13 @@ export interface SettingsUiHint {
    *  `ui.kind` override when the zod union doesn't classify cleanly. */
   kind: SettingsUiKind;
   options?: string[];
-  mapValueKind?: 'string' | 'number' | 'boolean' | 'numberOrBool' | 'json';
+  mapValueKind?:
+    | 'string'
+    | 'number'
+    | 'boolean'
+    | 'numberOrBool'
+    | 'size'
+    | 'json';
   /** Hint for `KeyValueListField` column ratio (default `equal`). */
   mapWidth?: 'equal' | 'wide-key' | 'wide-value';
   /** When `kind === 'string'`, render a textarea instead of single-line input
@@ -26,6 +37,10 @@ export interface SettingsUiHint {
   multiline?: boolean;
   /** For `number` fields - minimum allowed value (default: 0). */
   min?: number;
+  /** For `number` fields - maximum allowed value (default: unbounded). */
+  max?: number;
+  /** For `number` fields - step size (default: 1). */
+  step?: number;
 }
 
 export interface SettingsKey {
@@ -41,15 +56,23 @@ export interface SettingsKey {
   value: unknown;
   secretSet: boolean;
   ui: SettingsUiHint;
+  /** Present when the field is deprecated (only served while an override is
+   *  active); the migration guidance to show. */
+  deprecated?: string;
 }
 
-const KEY = ['dashboard', 'settings'] as const;
+/** Query key for the generic settings page. */
+export const SETTINGS_QUERY_KEY = ['dashboard', 'settings'] as const;
+const KEY = SETTINGS_QUERY_KEY;
 
-export function useSettings() {
+const DASHBOARD_SCOPE = ['dashboard'] as const;
+
+export function useSettings(opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: KEY,
     queryFn: () => api<{ keys: SettingsKey[] }>('/dashboard/settings'),
     staleTime: 10_000,
+    enabled: opts?.enabled ?? true,
   });
 }
 
@@ -63,7 +86,7 @@ export function useSaveSettings() {
   return useMutation({
     mutationFn: (patch: Record<string, unknown>) =>
       api<PatchResult>('PATCH /dashboard/settings', { body: patch }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: DASHBOARD_SCOPE }),
   });
 }
 
@@ -73,14 +96,18 @@ export interface ResetResult {
   requiresRestart: boolean;
 }
 
-export function useResetSettings() {
+/**
+ * @param invalidate Query keys to refetch after a successful reset.
+ */
+export function useResetSettings(invalidate: QueryKey[] = [DASHBOARD_SCOPE]) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (keys: string[]) =>
       api<ResetResult>('POST /dashboard/settings/reset', {
         body: { keys },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () =>
+      invalidate.forEach((queryKey) => qc.invalidateQueries({ queryKey })),
   });
 }
 
@@ -96,7 +123,7 @@ export function useImportEnv() {
   return useMutation({
     mutationFn: () =>
       api<ImportEnvResult>('POST /dashboard/settings/import/env'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: DASHBOARD_SCOPE }),
   });
 }
 
@@ -107,14 +134,18 @@ export interface ImportSettingsResult {
   requiresRestart: boolean;
 }
 
-export function useImportSettings() {
+/**
+ * @param invalidate Query keys to refetch after a successful import.
+ */
+export function useImportSettings(invalidate: QueryKey[] = [DASHBOARD_SCOPE]) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (settings: Record<string, unknown>) =>
       api<ImportSettingsResult>('POST /dashboard/settings/import/json', {
         body: { settings },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () =>
+      invalidate.forEach((queryKey) => qc.invalidateQueries({ queryKey })),
   });
 }
 

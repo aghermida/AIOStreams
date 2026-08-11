@@ -10,12 +10,11 @@ import { useQuery } from '@tanstack/react-query';
 import {
   BiBarChartAlt2,
   BiChip,
+  BiCloudDownload,
   BiCog,
   BiData,
-  BiGroup,
   BiHistory,
-  BiLineChart,
-  BiServer,
+  BiPlayCircle,
   BiTask,
   BiTerminal,
 } from 'react-icons/bi';
@@ -24,7 +23,7 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/components/ui/core/styling';
 import { api } from '@/lib/api';
 import { useSystemStream } from '@/app/dashboard/system/use-system';
-import { formatDuration } from '@/app/dashboard/tasks/tasks-page';
+import { formatDuration } from '@/lib/format';
 import { DashboardQueryBoundary } from '@/components/shared/dashboard-query-boundary';
 
 interface OverviewMetrics {
@@ -63,10 +62,16 @@ const LINKS: Array<{
     icon: BiBarChartAlt2,
   },
   {
-    to: '/dashboard/users',
-    label: 'Users',
-    desc: 'Browse user configs',
-    icon: BiGroup,
+    to: '/dashboard/streams',
+    label: 'Streams',
+    desc: 'Active, history & bandwidth',
+    icon: BiPlayCircle,
+  },
+  {
+    to: '/dashboard/usenet',
+    label: 'Usenet',
+    desc: 'Library, providers & stats',
+    icon: BiCloudDownload,
   },
   {
     to: '/dashboard/tasks',
@@ -91,12 +96,6 @@ const LINKS: Array<{
     label: 'Cache',
     desc: 'Cache stats & flush',
     icon: BiData,
-  },
-  {
-    to: '/dashboard/proxy',
-    label: 'Proxy',
-    desc: 'Built-in proxy',
-    icon: BiLineChart,
   },
   {
     to: '/dashboard/settings',

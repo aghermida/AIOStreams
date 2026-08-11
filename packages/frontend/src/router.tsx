@@ -9,10 +9,23 @@ import {
   LogsPage,
   SystemPage,
   SettingsPage,
-  ProxyPage,
   UsersPage,
   TasksPage,
   CachePage,
+  BlocklistLayout,
+  BlocklistSourcesPage,
+  BlocklistEntriesPage,
+  BlocklistPublishingPage,
+  StreamsLayout,
+  StreamsActivePage,
+  StreamsHistoryPage,
+  StreamsBandwidthPage,
+  StreamsBansPage,
+  UsenetLayout,
+  UsenetLibraryPage,
+  UsenetStatsPage,
+  UsenetProvidersPage,
+  UsenetSettingsPage,
 } from './routes/dashboard-pages';
 import { SplashscreenPage } from './routes/splashscreen-page';
 import { ConfigureRoute } from './routes/configure-route';
@@ -148,16 +161,61 @@ const dashboardSystemRoute = createRoute({
   component: SystemPage,
 });
 
+/** `field` is a transient deep-link target: the settings page scrolls to it,
+ *  highlights it, then strips it from the URL. Every key is optional, so
+ *  navigating to these routes without a search object stays valid. */
+const optionalString = (value: unknown): string | undefined =>
+  typeof value === 'string' && value ? value : undefined;
+
 const dashboardSettingsRoute = createRoute({
   getParentRoute: () => dashboardRoute,
   path: 'settings',
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { tab?: string; field?: string } => ({
+    tab: optionalString(search.tab),
+    field: optionalString(search.field),
+  }),
   component: SettingsPage,
 });
 
-const dashboardProxyRoute = createRoute({
+const dashboardStreamsRoute = createRoute({
   getParentRoute: () => dashboardRoute,
-  path: 'proxy',
-  component: ProxyPage,
+  path: 'streams',
+  component: StreamsLayout,
+});
+
+// `/dashboard/streams` → redirect to the default section.
+const dashboardStreamsIndexRoute = createRoute({
+  getParentRoute: () => dashboardStreamsRoute,
+  path: '/',
+  beforeLoad: () => {
+    throw redirect({ to: '/dashboard/streams/active' });
+  },
+});
+
+const dashboardStreamsActiveRoute = createRoute({
+  getParentRoute: () => dashboardStreamsRoute,
+  path: 'active',
+  component: StreamsActivePage,
+});
+
+const dashboardStreamsHistoryRoute = createRoute({
+  getParentRoute: () => dashboardStreamsRoute,
+  path: 'history',
+  component: StreamsHistoryPage,
+});
+
+const dashboardStreamsBandwidthRoute = createRoute({
+  getParentRoute: () => dashboardStreamsRoute,
+  path: 'bandwidth',
+  component: StreamsBandwidthPage,
+});
+
+const dashboardStreamsBansRoute = createRoute({
+  getParentRoute: () => dashboardStreamsRoute,
+  path: 'bans',
+  component: StreamsBansPage,
 });
 
 const dashboardUsersRoute = createRoute({
@@ -178,6 +236,80 @@ const dashboardCacheRoute = createRoute({
   component: CachePage,
 });
 
+const dashboardBlocklistRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: 'blocklist',
+  component: BlocklistLayout,
+});
+
+const dashboardBlocklistIndexRoute = createRoute({
+  getParentRoute: () => dashboardBlocklistRoute,
+  path: '/',
+  beforeLoad: () => {
+    throw redirect({ to: '/dashboard/blocklist/sources' });
+  },
+});
+
+const dashboardBlocklistSourcesRoute = createRoute({
+  getParentRoute: () => dashboardBlocklistRoute,
+  path: 'sources',
+  component: BlocklistSourcesPage,
+});
+
+const dashboardBlocklistEntriesRoute = createRoute({
+  getParentRoute: () => dashboardBlocklistRoute,
+  path: 'entries',
+  component: BlocklistEntriesPage,
+});
+
+const dashboardBlocklistPublishingRoute = createRoute({
+  getParentRoute: () => dashboardBlocklistRoute,
+  path: 'publishing',
+  component: BlocklistPublishingPage,
+});
+
+const dashboardUsenetRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: 'usenet',
+  component: UsenetLayout,
+});
+
+// `/dashboard/usenet` → redirect to the default section.
+const dashboardUsenetIndexRoute = createRoute({
+  getParentRoute: () => dashboardUsenetRoute,
+  path: '/',
+  beforeLoad: () => {
+    throw redirect({ to: '/dashboard/usenet/library' });
+  },
+});
+
+const dashboardUsenetLibraryRoute = createRoute({
+  getParentRoute: () => dashboardUsenetRoute,
+  path: 'library',
+  component: UsenetLibraryPage,
+});
+
+const dashboardUsenetStatsRoute = createRoute({
+  getParentRoute: () => dashboardUsenetRoute,
+  path: 'stats',
+  component: UsenetStatsPage,
+});
+
+const dashboardUsenetProvidersRoute = createRoute({
+  getParentRoute: () => dashboardUsenetRoute,
+  path: 'providers',
+  component: UsenetProvidersPage,
+});
+
+const dashboardUsenetSettingsRoute = createRoute({
+  getParentRoute: () => dashboardUsenetRoute,
+  path: 'settings',
+  validateSearch: (search: Record<string, unknown>): { field?: string } => ({
+    field: optionalString(search.field),
+  }),
+  component: UsenetSettingsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   stremioConfigureRoute,
@@ -191,10 +323,29 @@ const routeTree = rootRoute.addChildren([
     dashboardLogsRoute,
     dashboardSystemRoute,
     dashboardSettingsRoute,
-    dashboardProxyRoute,
     dashboardUsersRoute,
     dashboardTasksRoute,
     dashboardCacheRoute,
+    dashboardStreamsRoute.addChildren([
+      dashboardStreamsIndexRoute,
+      dashboardStreamsActiveRoute,
+      dashboardStreamsHistoryRoute,
+      dashboardStreamsBandwidthRoute,
+      dashboardStreamsBansRoute,
+    ]),
+    dashboardBlocklistRoute.addChildren([
+      dashboardBlocklistIndexRoute,
+      dashboardBlocklistSourcesRoute,
+      dashboardBlocklistEntriesRoute,
+      dashboardBlocklistPublishingRoute,
+    ]),
+    dashboardUsenetRoute.addChildren([
+      dashboardUsenetIndexRoute,
+      dashboardUsenetLibraryRoute,
+      dashboardUsenetStatsRoute,
+      dashboardUsenetProvidersRoute,
+      dashboardUsenetSettingsRoute,
+    ]),
   ]),
 ]);
 

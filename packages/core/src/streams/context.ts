@@ -12,7 +12,10 @@ import {
   enrichParsedIdWithAnimeEntry,
 } from '../utils/index.js';
 import { SeaDexResult } from '../utils/seadex.js';
-import { calculateAbsoluteEpisode } from '../builtins/utils/general.js';
+import {
+  calculateAbsoluteEpisode,
+  isNonAnimeAbsoluteEligible,
+} from '../builtins/utils/general.js';
 import { iso6391ToLanguage } from '../utils/languages.js';
 
 const logger = createLogger('stream-context');
@@ -195,9 +198,35 @@ export class StreamContext {
           this.type as any
         );
 
-        // Calculate absolute episode for anime
+        // Calculate absolute episode for anime and eligible non-anime titles
         let absoluteEpisode: number | undefined;
         let relativeAbsoluteEpisode: number | undefined;
+        const nonAnimeAbsolute =
+          !this.isAnime && isNonAnimeAbsoluteEligible(metadata);
+        if (
+          nonAnimeAbsolute &&
+          this.parsedId!.episode &&
+          (metadata.resolvedSeasonFirstEpisode ?? 1) > 1
+        ) {
+          // episodes are already numbered continuously across seasons
+          absoluteEpisode = Number(this.parsedId!.episode);
+        } else if (
+          nonAnimeAbsolute &&
+          this.parsedId!.season &&
+          this.parsedId!.episode &&
+          metadata.seasons
+        ) {
+          absoluteEpisode = Number(
+            calculateAbsoluteEpisode(
+              this.parsedId!.season,
+              this.parsedId!.episode,
+              metadata.seasons.map(({ season_number, episode_count }) => ({
+                number: season_number.toString(),
+                episodes: episode_count,
+              }))
+            )
+          );
+        }
         if (
           this.isAnime &&
           this.parsedId!.season &&
@@ -221,8 +250,8 @@ export class StreamContext {
           // Calculate relative absolute episode (within current AniDB entry)
           const startingSeason =
             this.animeEntry?.imdb?.seasonNumber ??
-            this.animeEntry?.trakt?.seasonNumber ??
             this.animeEntry?.tvdb?.seasonNumber ??
+            this.animeEntry?.trakt?.seasonNumber ??
             this.animeEntry?.tmdb?.seasonNumber;
 
           if (startingSeason) {
@@ -244,7 +273,19 @@ export class StreamContext {
             }
           }
 
-          if (this.animeEntry?.imdb?.nonImdbEpisodes && absoluteEpisode) {
+          // Adjust for non-IMDB episodes if they exist.
+          const parsedSeasonRecord = seasons.find(
+            (s) => s.number === this.parsedId!.season
+          );
+          const isAlreadyAbsoluteForNonImdb =
+            parsedSeasonRecord !== undefined &&
+            Number(this.parsedId!.episode) > parsedSeasonRecord.episodes;
+
+          if (
+            this.animeEntry?.imdb?.nonImdbEpisodes &&
+            absoluteEpisode &&
+            !isAlreadyAbsoluteForNonImdb
+          ) {
             const nonImdbEpisodesBefore =
               this.animeEntry.imdb.nonImdbEpisodes.filter(
                 (ep: number) => ep < absoluteEpisode!
@@ -595,7 +636,7 @@ export class StreamContext {
 
   /**
    * Convert context to FormatterContext for formatter initialization.
-   * Requires streams to calculate maxRseScore and maxRegexScore.
+   * Requires streams to calculate maxSeScore and maxRegexScore.
    */
   public toFormatterContext(
     streams?: ParsedStream[]
@@ -638,6 +679,8 @@ export class StreamContext {
       originalLanguage: iso6391ToLanguage(
         this._metadata?.originalLanguage || ''
       ),
+      country: this._metadata?.country,
+      episodeTitles: this._metadata?.episodeTitles?.map((t) => t.title),
       daysSinceRelease: this.computeAgeInDays(),
       hasNextEpisode: !!this._metadata?.nextAirDate,
       daysUntilNextEpisode: this.computeDaysUntilNextEpisode(),
@@ -648,7 +691,9 @@ export class StreamContext {
         : undefined,
       anilistId: this.animeEntry?.mappings?.anilistId,
       malId: this.animeEntry?.mappings?.malId,
-      hasSeaDex: !!this._seadex?.allHashes?.size,
+      hasSeaDex: !!(
+        this._seadex?.allHashes?.size || this._seadex?.allGroups?.size
+      ),
       maxSeScore,
       maxRegexScore,
     };
@@ -691,7 +736,9 @@ export class StreamContext {
       anilistId: this.animeEntry?.mappings?.anilistId,
       malId: this.animeEntry?.mappings?.malId,
       // SeaDex availability
-      hasSeaDex: !!this._seadex?.allHashes?.size,
+      hasSeaDex: !!(
+        this._seadex?.allHashes?.size || this._seadex?.allGroups?.size
+      ),
     };
   }
 }

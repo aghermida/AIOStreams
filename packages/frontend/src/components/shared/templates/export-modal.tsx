@@ -4,6 +4,7 @@ import { Button } from '../../ui/button';
 import { Alert } from '../../ui/alert';
 import { toast } from 'sonner';
 import { Template, UserData } from '@aiostreams/core';
+import { redactPresetOptions } from '@/lib/preset-credentials';
 import { useStatus } from '@/context/status';
 import { TextInput } from '../../ui/text-input';
 import { Textarea } from '../../ui/textarea';
@@ -122,23 +123,17 @@ export function TemplateExportModal({
           const presetMeta = status?.settings.presets.find(
             (p) => p.ID === preset.type
           );
-          const newOptions = { ...(preset.options || {}) };
           const presetInUserData = userData.presets?.find(
             (p) => p.instanceId == preset.instanceId
           );
 
-          // Replace password type options with template placeholders
-          presetMeta?.OPTIONS?.filter((opt) => opt.type === 'password').forEach(
-            (passwordOption) => {
-              if (presetInUserData?.options?.[passwordOption.id]) {
-                newOptions[passwordOption.id] = '<template_placeholder>';
-              }
-            }
-          );
-
           return {
             ...preset,
-            options: newOptions,
+            options: redactPresetOptions(
+              presetInUserData?.options ?? preset.options,
+              presetMeta?.OPTIONS,
+              '<template_placeholder>'
+            ),
           };
         });
       }
