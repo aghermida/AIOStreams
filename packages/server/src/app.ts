@@ -1,4 +1,4 @@
-﻿import express, { Express } from 'express';
+﻿import express, { Request, Response, Express } from 'express';
 import {
   userApi,
   profilesApi,
