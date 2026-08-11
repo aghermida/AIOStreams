@@ -8,7 +8,7 @@ import {
 import bytes from 'bytes';
 import { formatZodError } from '../utils/config.js';
 import { ZodError } from 'zod';
-import { PASSTHROUGH_STAGES } from '../utils/constants.js';
+import { PASSTHROUGH_STAGES, SERVICES } from '../utils/constants.js';
 import { parseBitrate } from './utils.js';
 import { createLogger } from '../logging/logger.js';
 import { ExpressionContext } from '../streams/context.js';
@@ -53,10 +53,10 @@ export abstract class StreamExpressionEngine {
         lg: false,
         log10: false,
         abs: false,
-        ceil: false,
-        floor: false,
-        round: false,
-        trunc: false,
+        ceil: true,
+        floor: true,
+        round: true,
+        trunc: true,
         exp: false,
         length: false,
         in: true,
@@ -991,27 +991,10 @@ export abstract class StreamExpressionEngine {
           'You must provide one or more service string parameters'
         );
       } else if (
-        !services.every((s) =>
-          [
-            'realdebrid',
-            'debridlink',
-            'alldebrid',
-            'torbox',
-            'pikpak',
-            'seedr',
-            'offcloud',
-            'premiumize',
-            'easynews',
-            'nzbdav',
-            'altmount',
-            'stremio_nntp',
-            'easydebrid',
-            'debrider',
-          ].includes(s)
-        )
+        !services.every((s) => (SERVICES as readonly string[]).includes(s))
       ) {
         throw new Error(
-          'Service must be a string and one of: realdebrid, debridlink, alldebrid, torbox, pikpak, seedr, offcloud, premiumize, easynews, nzbdav, altmount, easydebrid, debrider'
+          `Service must be a string and one of: ${SERVICES.join(', ')}`
         );
       }
       return streams.filter((stream) =>
@@ -1115,9 +1098,17 @@ export abstract class StreamExpressionEngine {
       return streams.filter((stream) => stream.library);
     };
 
+    this.parser.functions.idMatched = function (streams: ParsedStream[]) {
+      if (!Array.isArray(streams) || streams.some((stream) => !stream.type)) {
+        throw new Error('Your streams input must be an array of streams');
+      }
+      return streams.filter((stream) => stream.idMatched);
+    };
+
     this.parser.functions.seadex = function (
       streams: ParsedStream[],
-      filterType?: string
+      filterType?: string,
+      matchMethod?: string
     ) {
       if (!Array.isArray(streams) || streams.some((stream) => !stream.type)) {
         const nonStream = streams.find((s) => typeof s !== 'object' || !s.type);
@@ -1126,14 +1117,23 @@ export abstract class StreamExpressionEngine {
       }
 
       const filter = filterType?.toLowerCase() || 'all';
+      const method = matchMethod?.toLowerCase() || 'any';
 
-      if (filter === 'best') {
-        // Only return SeaDex "best" releases
-        return streams.filter((stream) => stream.seadex?.isBest === true);
-      }
-
-      // Return all SeaDex releases (includes group fallback matches)
-      return streams.filter((stream) => stream.seadex?.isSeadex === true);
+      return streams.filter((stream) => {
+        if (stream.seadex?.isSeadex !== true) {
+          return false;
+        }
+        if (filter === 'best' && stream.seadex.isBest !== true) {
+          return false;
+        }
+        if (filter === 'alt' && stream.seadex.isBest === true) {
+          return false;
+        }
+        if (method !== 'any' && stream.seadex.method !== method) {
+          return false;
+        }
+        return true;
+      });
     };
 
     this.parser.functions.seScore = function (
@@ -1529,6 +1529,7 @@ export abstract class StreamExpressionEngine {
       size: 1073741824, // 1GB in bytes
       folderSize: 2147483648, // 2GB in bytes
       library: false,
+      idMatched: false,
       url: 'https://example.com/stream.mkv',
       filename: 'test.mkv',
       folderName: 'Test Folder',

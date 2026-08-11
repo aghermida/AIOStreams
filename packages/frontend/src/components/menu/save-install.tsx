@@ -9,13 +9,16 @@ import {
   CreateUserResponse,
 } from '@/lib/api';
 import { PageWrapper } from '@/components/shared/page-wrapper';
+import { cn } from '@/components/ui/core/styling';
 import { Alert } from '@/components/ui/alert';
 import { SettingsCard } from '../shared/settings-card';
 import { toast } from 'sonner';
 import {
+  Code2,
   CopyIcon,
   DownloadIcon,
   PlusIcon,
+  Rss,
   SearchIcon,
   UploadIcon,
 } from 'lucide-react';
@@ -29,6 +32,7 @@ import { copyToClipboard } from '@/utils/clipboard';
 import { PageControls } from '../shared/page-controls';
 import { useDisclosure } from '@/hooks/disclosure';
 import { Modal } from '../ui/modal';
+import { Select } from '../ui/select';
 import { Switch } from '../ui/switch';
 import { TemplateExportModal } from '../shared/templates/export-modal';
 import { ConfigTemplatesModal } from '../shared/templates';
@@ -38,9 +42,14 @@ import {
   ConfirmationDialog,
   useConfirmationDialog,
 } from '../shared/confirmation-dialog';
-import { UserData } from '@aiostreams/core';
+import { UserData, VariantSelectorLocation } from '@aiostreams/core';
+import { redactPresetOptions } from '@/lib/preset-credentials';
 import { useSave } from '@/context/save';
 import { FiExternalLink } from 'react-icons/fi';
+import { ProfileCard } from './profile-card';
+import { useSession } from '@/context/session';
+import { useQuery } from '@tanstack/react-query';
+import { configProfilesQuery } from '@/lib/queries';
 
 // Reusable modal option button component
 interface ModalOptionButtonProps {
@@ -75,7 +84,10 @@ function ModalOptionButton({
 }
 
 interface AppCardProps {
-  logoSrc: string;
+  /** Brand logo image. Omit and pass `icon` for a generic (non-brand) entry. */
+  logoSrc?: string;
+  /** Generic icon shown when there is no `logoSrc` (e.g. API/indexer entries). */
+  icon?: React.ReactNode;
   name: string;
   description: string;
   onClick: () => void;
@@ -88,6 +100,7 @@ interface AppCardProps {
 
 function AppCard({
   logoSrc,
+  icon,
   name,
   description,
   onClick,
@@ -107,12 +120,16 @@ function AppCard({
           : 'hover:border-brand-400 hover:from-brand-400/10 hover:to-brand-400/5'
       }`}
     >
-      <div className="flex-shrink-0 h-8 w-8 rounded-lg overflow-hidden flex items-center justify-center">
-        <img
-          src={logoSrc}
-          alt={name}
-          className="h-full w-full object-contain"
-        />
+      <div className="flex-shrink-0 h-8 w-8 rounded-lg overflow-hidden flex items-center justify-center text-brand-400">
+        {logoSrc ? (
+          <img
+            src={logoSrc}
+            alt={name}
+            className="h-full w-full object-contain"
+          />
+        ) : (
+          icon
+        )}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -184,6 +201,7 @@ function CreateConfigCard({
           <PasswordInput
             label="Password"
             id="password"
+            name="new-password"
             value={newPassword}
             onValueChange={onNewPasswordChange}
             placeholder="Enter a password to protect your configuration"
@@ -194,6 +212,7 @@ function CreateConfigCard({
             <PasswordInput
               label="Confirm Password"
               id="confirm-password"
+              name="confirm-new-password"
               value={confirmNewPassword}
               onValueChange={onConfirmNewPasswordChange}
               placeholder="Re-enter your password"
@@ -281,178 +300,277 @@ function SaveConfigCard({
   );
 }
 
+const COMPATIBLE_CLIENTS: {
+  name: string;
+  logoSrc: string;
+  url: string;
+  imgClassName?: string;
+}[] = [
+  {
+    name: 'Nuvio',
+    logoSrc: 'https://nuvio.tv/assets/Logo_1080x1080.png',
+    url: 'https://nuvio.tv/',
+  },
+  {
+    name: 'RealStream',
+    logoSrc: 'https://rstream.app/logo-realstream.png',
+    url: 'https://rstream.app/',
+    imgClassName: 'scale-150',
+  },
+  {
+    name: 'Aurora',
+    logoSrc: 'https://auroramediacenter.com/logo.png',
+    url: 'https://auroramediacenter.com/',
+    imgClassName: 'scale-150',
+  },
+  {
+    name: 'Fusion',
+    logoSrc: 'https://fusionapp.dev/FUSN_dark-iOS.png',
+    url: 'https://fusionapp.dev/',
+  },
+  {
+    name: 'Omni',
+    logoSrc: 'https://omni.stkc.win/favicon.ico',
+    url: 'https://omni.stkc.win/',
+  },
+];
+
+function CompatibleClientLogos() {
+  return (
+    <div className="flex flex-wrap items-center gap-2 pt-1.5 ml-1">
+      {COMPATIBLE_CLIENTS.map((client) => (
+        <a
+          key={client.name}
+          href={client.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={client.name}
+          aria-label={`${client.name} (opens in a new tab)`}
+          className="flex-shrink-0 h-7 w-7 rounded-md overflow-hidden transition-transform hover:scale-110 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-400"
+        >
+          <img
+            src={client.logoSrc}
+            alt={client.name}
+            className={`h-full w-full object-contain ${client.imgClassName ?? ''}`}
+          />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+interface VariantSelectorProps {
+  variants: NonNullable<UserData['variants']>;
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  location: VariantSelectorLocation;
+  onLocationChange: (location: VariantSelectorLocation) => void;
+}
+
+function VariantSelector({
+  variants,
+  selected,
+  onChange,
+  location,
+  onLocationChange,
+}: VariantSelectorProps) {
+  const toggle = (id: string) =>
+    onChange(
+      selected.includes(id)
+        ? selected.filter((value) => value !== id)
+        : [...selected, id]
+    );
+
+  const pill = (active: boolean) =>
+    cn(
+      'px-2.5 py-1 text-xs font-medium rounded-full border transition-colors',
+      active
+        ? 'bg-[--brand]/20 text-[--brand] border-[--brand]/50'
+        : 'bg-transparent text-[--muted] border-[--border] hover:bg-[--subtle]'
+    );
+
+  return (
+    <div className="w-full rounded-xl border border-gray-700 bg-gray-800/30 p-5 shadow-inner">
+      <h3 className="text-lg font-semibold text-white">Variant</h3>
+      <p className="text-sm text-[--muted] mt-1">
+        The links below install the selected variant. Each one appears as a
+        separate addon in your client; pick more than one to combine them.
+      </p>
+      <div className="flex flex-wrap gap-1.5 mt-4">
+        <button
+          type="button"
+          onClick={() => onChange([])}
+          className={pill(selected.length === 0)}
+        >
+          Base config
+        </button>
+        {variants.map((variant) => (
+          <button
+            key={variant.id}
+            type="button"
+            onClick={() => toggle(variant.id)}
+            className={pill(selected.includes(variant.id))}
+          >
+            {variant.name || variant.id}
+          </button>
+        ))}
+      </div>
+      {selected.length > 0 && (
+        <div className="mt-5 pt-4 border-t border-gray-700/50 max-w-md">
+          <Select
+            label="Selector location"
+            help={
+              location === 'path'
+                ? 'In the path, as /v/id. Survives clients that rebuild request URLs from the base and would drop a query string.'
+                : 'In the query string, as ?v=id. Some clients drop it after the manifest.'
+            }
+            value={location}
+            onValueChange={(value) =>
+              onLocationChange(value as VariantSelectorLocation)
+            }
+            options={[
+              { value: 'path', label: 'Path segment (/v/)' },
+              { value: 'query', label: 'Query parameter (?v=)' },
+            ]}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface InstallCardProps {
-  baseUrl: string;
-  uuid: string;
-  encryptedPassword: string;
   encodedManifest: string;
   manifestUrl: string;
+  usingAlias: boolean;
   onCopyManifestUrl: () => void;
   onOpenChillio: () => void;
   onOpenSeanime: () => void;
   onOpenJellyfin: () => void;
   onOpenAniyomi: () => void;
+  onOpenNabIndexer: () => void;
+  onOpenSearchApi: () => void;
   disableSeanimeCard?: boolean;
   seanimeDisabledReason?: string;
+  disableNabIndexerCard?: boolean;
+  nabIndexerDisabledReason?: string;
+  disableSearchApiCard?: boolean;
+  searchApiDisabledReason?: string;
+  variantSelector?: React.ReactNode;
 }
 
 function InstallCard({
-  baseUrl,
-  uuid,
-  encryptedPassword,
   encodedManifest,
   manifestUrl,
+  usingAlias,
+  variantSelector,
   onCopyManifestUrl,
   onOpenChillio,
   onOpenSeanime,
   onOpenJellyfin,
   onOpenAniyomi,
+  onOpenNabIndexer,
+  onOpenSearchApi,
   disableSeanimeCard,
   seanimeDisabledReason,
+  disableNabIndexerCard,
+  nabIndexerDisabledReason,
+  disableSearchApiCard,
+  searchApiDisabledReason,
 }: InstallCardProps) {
-  const stremioCardRef = React.useRef<HTMLDivElement>(null);
-  const [stremioCardHeight, setStremioCardHeight] = React.useState<
-    number | null
-  >(null);
-  const [isDesktop, setIsDesktop] = React.useState(false);
-
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const mediaQuery = window.matchMedia('(min-width: 1024px)');
-    const updateViewport = () => setIsDesktop(mediaQuery.matches);
-    updateViewport();
-
-    mediaQuery.addEventListener('change', updateViewport);
-
-    return () => {
-      mediaQuery.removeEventListener('change', updateViewport);
-    };
-  }, []);
-
-  React.useEffect(() => {
-    if (!isDesktop) {
-      setStremioCardHeight(null);
-      return;
-    }
-
-    const element = stremioCardRef.current;
-    if (!element) return;
-
-    const updateHeight = () => {
-      setStremioCardHeight(element.getBoundingClientRect().height);
-    };
-
-    updateHeight();
-
-    const resizeObserver = new ResizeObserver(updateHeight);
-    resizeObserver.observe(element);
-
-    window.addEventListener('resize', updateHeight);
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener('resize', updateHeight);
-    };
-  }, [isDesktop]);
-
   return (
     <SettingsCard
       title="Installation Options"
       description="Install your addon using your preferred method. If a reinstall is necessary, a pop-up will tell you — otherwise, you do not need to reinstall."
     >
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:items-start">
-        <div
-          ref={stremioCardRef}
-          className="lg:col-span-7 xl:col-span-8 flex flex-col gap-5 rounded-xl border border-gray-700 bg-gray-800/30 p-5 shadow-inner"
-        >
-          <div className="flex items-center gap-4 border-b border-gray-700/50 pb-4">
-            <div className="flex-shrink-0 h-12 w-12 rounded-lg bg-gray-900 flex items-center justify-center p-2 shadow-sm">
-              <img
-                src="https://raw.githubusercontent.com/Stremio/stremio-brand/refs/heads/master/logos/PNG/stremio-logo-800px.png"
-                alt="Stremio"
-                className="h-full w-full object-contain"
-              />
+      <div className="flex flex-col gap-6">
+        {variantSelector}
+        <div className="w-full rounded-xl border border-gray-700 bg-gray-800/30 p-5 shadow-inner">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 lg:items-center">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-4">
+                <div className="flex-shrink-0 h-12 w-12 rounded-lg bg-gray-900 flex items-center justify-center p-2 shadow-sm">
+                  <img
+                    src="https://raw.githubusercontent.com/Stremio/stremio-brand/refs/heads/master/logos/PNG/stremio-logo-800px.png"
+                    alt="Stremio"
+                    className="h-full w-full object-contain"
+                  />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Stremio</h3>
+                  <p className="text-sm text-gray-400">
+                    Install to Stremio or other Stremio addon compatible clients
+                    using the Manifest URL.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Button
+                  onClick={() =>
+                    window.open(
+                      manifestUrl.replace(/^https?:\/\//, 'stremio://')
+                    )
+                  }
+                  intent="primary"
+                  className="w-full shadow-md"
+                >
+                  Install to Stremio
+                </Button>
+                <Button
+                  onClick={() =>
+                    window.open(
+                      `https://web.stremio.com/#/addons?addon=${encodedManifest}`
+                    )
+                  }
+                  intent="gray-outline"
+                  className="w-full"
+                >
+                  Install to Stremio Web
+                </Button>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-white">Stremio</h3>
-              <p className="text-sm text-gray-400">
-                Install to Stremio or other Stremio addon compatible clients
-                using the Manifest URL.
+
+            <div className="space-y-1.5 lg:border-l lg:border-gray-700/50 lg:pl-8">
+              <label className="text-xs font-medium text-gray-400 ml-1">
+                {usingAlias ? 'Manifest URL (alias)' : 'Direct Manifest URL'}
+              </label>
+              <div className="flex items-center gap-2">
+                <TextInput
+                  type="text"
+                  readOnly
+                  value={manifestUrl}
+                  className="flex-1 font-mono text-sm bg-black/20"
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <Button
+                  onClick={onCopyManifestUrl}
+                  intent="primary"
+                  className="shrink-0 px-3"
+                  aria-label="Copy install link"
+                >
+                  <CopyIcon className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500 ml-1">
+                Install manually to Stremio or any Stremio addon compatible
+                client.
+                {usingAlias &&
+                  ' Your profile alias stands in for the UUID and password; the long URL still works.'}
               </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Button
-              onClick={() =>
-                window.open(
-                  `stremio://${baseUrl.replace(/^https?:\/\//, '')}/stremio/${uuid}/${encryptedPassword}/manifest.json`
-                )
-              }
-              intent="primary"
-              className="w-full shadow-md"
-            >
-              Install to Stremio
-            </Button>
-            <Button
-              onClick={() =>
-                window.open(
-                  `https://web.stremio.com/#/addons?addon=${encodedManifest}`
-                )
-              }
-              intent="gray-outline"
-              className="w-full"
-            >
-              Install to Stremio Web
-            </Button>
-          </div>
-
-          <div className="space-y-1.5 mt-2">
-            <label className="text-xs font-medium text-gray-400 ml-1">
-              Direct Manifest URL
-            </label>
-            <div className="flex items-center gap-2">
-              <TextInput
-                type="text"
-                readOnly
-                value={manifestUrl}
-                className="flex-1 font-mono text-sm bg-black/20"
-                onClick={(e) => e.currentTarget.select()}
-              />
-              <Button
-                onClick={onCopyManifestUrl}
-                intent="primary"
-                className="shrink-0 px-3"
-                aria-label="Copy install link"
-              >
-                <CopyIcon className="h-4 w-4" />
-              </Button>
+              <CompatibleClientLogos />
             </div>
           </div>
         </div>
 
-        <div
-          className="lg:col-span-5 xl:col-span-4 flex flex-col rounded-xl border border-gray-700 bg-gray-800/10 p-5 lg:overflow-hidden"
-          style={
-            isDesktop && stremioCardHeight
-              ? { maxHeight: `${stremioCardHeight}px` }
-              : undefined
-          }
-        >
+        {/* Other apps — playback clients you install the addon into */}
+        <div>
           <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
             <div className="h-px bg-gray-700 flex-1"></div>
             Other apps
             <div className="h-px bg-gray-700 flex-1"></div>
           </h3>
-
-          <div className="flex flex-col gap-3 flex-1 min-h-0 lg:overflow-y-auto pr-1">
-            <AppCard
-              logoSrc="https://link.chillio.app/app-icon.png"
-              name="Chillio"
-              description="Via ChillLink protocol"
-              onClick={onOpenChillio}
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <AppCard
               logoSrc="https://seanime.app/seanime-logo.png"
               name="Seanime"
@@ -470,12 +588,45 @@ function InstallCard({
               onClick={onOpenJellyfin}
             />
             <AppCard
+              logoSrc="https://link.chillio.app/app-icon.png"
+              name="Chillio"
+              description="Via ChillLink protocol"
+              onClick={onOpenChillio}
+            />
+            <AppCard
               logoSrc="https://aniyomi.org/img/logo-128px.png"
               name="Aniyomi / Animiru"
               description="Extension-based integration"
               unofficial
               author="worldInColors"
               onClick={onOpenAniyomi}
+            />
+          </div>
+        </div>
+
+        {/* Programmatic / API access — endpoints other tools consume */}
+        <div>
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <div className="h-px bg-gray-700 flex-1"></div>
+            Programmatic / API access
+            <div className="h-px bg-gray-700 flex-1"></div>
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <AppCard
+              icon={<Rss className="h-5 w-5" />}
+              name="Newznab / Torznab"
+              description="Indexer for Prowlarr, NZBHydra & *Arr apps"
+              onClick={onOpenNabIndexer}
+              disabled={disableNabIndexerCard}
+              disabledReason={nabIndexerDisabledReason}
+            />
+            <AppCard
+              icon={<Code2 className="h-5 w-5" />}
+              name="Search API"
+              description="JSON stream search endpoint"
+              onClick={onOpenSearchApi}
+              disabled={disableSearchApiCard}
+              disabledReason={searchApiDisabledReason}
             />
           </div>
         </div>
@@ -598,6 +749,8 @@ interface StremioCustomSourceModalProps {
 }
 
 const DEFAULT_NAME_TEMPLATE = '{catalog.name} - {catalog.type}';
+
+const VARIANT_LOCATION_STORAGE_KEY = 'aiostreams:install:variant-location';
 
 const STREMIO_CUSTOM_SOURCE_STORAGE_KEYS = {
   manifestUrl: 'aiostreams:seanime:stremio-custom-source:manifest-url',
@@ -1224,9 +1377,17 @@ function Content() {
     string[]
   >([]);
   const { status } = useStatus();
+  const { user: sessionUser } = useSession();
+  const { data: profileData } = useQuery({
+    ...configProfilesQuery,
+    enabled: Boolean(sessionUser),
+  });
+  const profileAlias =
+    profileData?.profiles.find((p) => p.uuid === uuid)?.alias ?? null;
   const baseUrl = status?.settings?.baseUrl || window.location.origin;
   const hasStatus = !!status;
   const searchApiDisabled = status?.settings?.searchApiDisabled ?? false;
+  const nabApiDisabled = status?.settings?.nabApiDisabled ?? false;
   const seanimeExtensionVersion =
     status?.settings?.seanimeExtensionVersion ?? null;
   const isSeanimeVersionUnavailable =
@@ -1248,11 +1409,23 @@ function Content() {
   const importMenuModal = useDisclosure(false);
   const [filterCredentialsInExport, setFilterCredentialsInExport] =
     React.useState(true);
+  const [selectedVariants, setSelectedVariants] = React.useState<string[]>([]);
+  const [variantLocation, setVariantLocation] =
+    React.useState<VariantSelectorLocation>(() =>
+      safeGetLocalStorageItem(VARIANT_LOCATION_STORAGE_KEY) === 'query'
+        ? 'query'
+        : 'path'
+    );
+  React.useEffect(() => {
+    safeSetLocalStorageItem(VARIANT_LOCATION_STORAGE_KEY, variantLocation);
+  }, [variantLocation]);
   const chillLinkModal = useDisclosure(false);
   const seanimeModal = useDisclosure(false);
   const stremioCustomSourceModal = useDisclosure(false);
   const jellyfinModal = useDisclosure(false);
   const aniyomiModal = useDisclosure(false);
+  const nabIndexerModal = useDisclosure(false);
+  const searchApiModal = useDisclosure(false);
   const { handleSave: handleSaveContext, loading: saveLoading } = useSave();
   const confirmResetProps = useConfirmationDialog({
     title: 'Confirm Reset',
@@ -1363,9 +1536,17 @@ function Content() {
       topPosterApiKey: undefined,
       aioratingsApiKey: undefined,
       aioratingsProfileId: undefined,
+      openposterdbApiKey: undefined,
+      openposterdbUrl: undefined,
+      openposterdbParameters: undefined,
       services: clonedData?.services?.map((service) => ({
         ...service,
         credentials: {},
+      })),
+      // Scripts commonly carry a swapped service credential.
+      variants: clonedData?.variants?.map((variant) => ({
+        ...variant,
+        script: '# [redacted] variant scripts may contain credentials',
       })),
       proxy: {
         ...clonedData?.proxy,
@@ -1379,14 +1560,7 @@ function Content() {
         );
         return {
           ...preset,
-          options: Object.fromEntries(
-            Object.entries(preset.options || {}).filter(([key]) => {
-              const optionMeta = presetMeta?.OPTIONS?.find(
-                (opt) => opt.id === key
-              );
-              return optionMeta?.type !== 'password';
-            })
-          ),
+          options: redactPresetOptions(preset.options, presetMeta?.OPTIONS),
         };
       }),
     };
@@ -1419,13 +1593,35 @@ function Content() {
   };
   const uuidRegex =
     /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-  const manifestUrl = uuid
-    ? uuidRegex.test(uuid)
-      ? `${baseUrl}/stremio/${uuid}/${encryptedPassword}/manifest.json`
-      : `${baseUrl}/stremio/u/${uuid}/manifest.json`
-    : '';
+  // An alias stands in for the uuid and password, so prefer it when there is one.
+  const aliasForInstall = !uuid
+    ? null
+    : uuidRegex.test(uuid)
+      ? (profileAlias ?? null)
+      : uuid;
+  const enabledVariants = (userData.variants ?? []).filter(
+    (variant) => variant.enabled !== false
+  );
+  const activeVariants = selectedVariants.filter((id) =>
+    enabledVariants.some((variant) => variant.id === id)
+  );
+  const variantIds = activeVariants.map(encodeURIComponent).join(',');
+  const variantPath =
+    activeVariants.length && variantLocation === 'path'
+      ? `/v/${variantIds}`
+      : '';
+  const variantQuery =
+    activeVariants.length && variantLocation === 'query'
+      ? `?v=${variantIds}`
+      : '';
+
+  const manifestUrl = !uuid
+    ? ''
+    : aliasForInstall
+      ? `${baseUrl}/stremio/u/${aliasForInstall}${variantPath}/manifest.json${variantQuery}`
+      : `${baseUrl}/stremio/${uuid}/${encryptedPassword}${variantPath}/manifest.json${variantQuery}`;
   const chillLinkUrl = uuid
-    ? `${baseUrl}/chilllink/${uuid}/${encryptedPassword}`
+    ? `${baseUrl}/chilllink/${uuid}/${encryptedPassword}${variantPath}${variantQuery}`
     : '';
   const encodedManifest = encodeURIComponent(manifestUrl);
 
@@ -1433,10 +1629,10 @@ function Content() {
     !!uuid && !!encryptedPassword && uuidRegex.test(uuid);
 
   const seanimePluginUrl = hasSeanimePersonalUrl
-    ? `${baseUrl}/seanime/${uuid}/${encryptedPassword}/extensions/aiostreams-plugin.json`
+    ? `${baseUrl}/seanime/${uuid}/${encryptedPassword}${variantPath}/extensions/aiostreams-plugin.json${variantQuery}`
     : `${baseUrl}/seanime/extensions/aiostreams-plugin.json`;
   const seanimeProviderUrl = hasSeanimePersonalUrl
-    ? `${baseUrl}/seanime/${uuid}/${encryptedPassword}/extensions/aiostreams-torrent-provider.json`
+    ? `${baseUrl}/seanime/${uuid}/${encryptedPassword}${variantPath}/extensions/aiostreams-torrent-provider.json${variantQuery}`
     : `${baseUrl}/seanime/extensions/aiostreams-torrent-provider.json`;
   const copyManifestUrl = async () => {
     await copyToClipboard(manifestUrl, {
@@ -1463,6 +1659,37 @@ function Content() {
     await copyToClipboard(seanimeProviderUrl, {
       onSuccess: () =>
         toast.success('Torrent provider URL copied to clipboard'),
+      onError: () => toast.error('Failed to copy URL'),
+    });
+  };
+
+  const newznabUrl = `${baseUrl}/api/v1/newznab/api`;
+  const torznabUrl = `${baseUrl}/api/v1/torznab/api`;
+  const nabApiKey =
+    uuid && encryptedPassword ? btoa(`${uuid}:${encryptedPassword}`) : '';
+  const searchApiUrl = `${baseUrl}/api/v1/search`;
+
+  const copyNewznabUrl = async () => {
+    await copyToClipboard(newznabUrl, {
+      onSuccess: () => toast.success('Newznab URL copied to clipboard'),
+      onError: () => toast.error('Failed to copy URL'),
+    });
+  };
+  const copyTorznabUrl = async () => {
+    await copyToClipboard(torznabUrl, {
+      onSuccess: () => toast.success('Torznab URL copied to clipboard'),
+      onError: () => toast.error('Failed to copy URL'),
+    });
+  };
+  const copyNabApiKey = async () => {
+    await copyToClipboard(nabApiKey, {
+      onSuccess: () => toast.success('API key copied to clipboard'),
+      onError: () => toast.error('Failed to copy API key'),
+    });
+  };
+  const copySearchApiUrl = async () => {
+    await copyToClipboard(searchApiUrl, {
+      onSuccess: () => toast.success('Search API URL copied to clipboard'),
       onError: () => toast.error('Failed to copy URL'),
     });
   };
@@ -1597,19 +1824,44 @@ function Content() {
             />
 
             <InstallCard
-              baseUrl={baseUrl}
-              uuid={uuid}
-              encryptedPassword={encryptedPassword ?? ''}
               encodedManifest={encodedManifest}
               manifestUrl={manifestUrl}
+              usingAlias={!!aliasForInstall}
+              variantSelector={
+                enabledVariants.length > 0 ? (
+                  <VariantSelector
+                    variants={enabledVariants}
+                    selected={activeVariants}
+                    onChange={setSelectedVariants}
+                    location={variantLocation}
+                    onLocationChange={setVariantLocation}
+                  />
+                ) : undefined
+              }
               onCopyManifestUrl={copyManifestUrl}
               onOpenChillio={chillLinkModal.open}
               onOpenSeanime={seanimeModal.open}
               onOpenJellyfin={jellyfinModal.open}
               onOpenAniyomi={aniyomiModal.open}
+              onOpenNabIndexer={nabIndexerModal.open}
+              onOpenSearchApi={searchApiModal.open}
               disableSeanimeCard={disableSeanimeCard}
               seanimeDisabledReason={seanimeDisabledReason}
+              disableNabIndexerCard={nabApiDisabled}
+              nabIndexerDisabledReason={
+                nabApiDisabled
+                  ? 'Newznab/Torznab API (disabled on this instance)'
+                  : undefined
+              }
+              disableSearchApiCard={searchApiDisabled}
+              searchApiDisabledReason={
+                searchApiDisabled
+                  ? 'Search API (disabled on this instance)'
+                  : undefined
+              }
             />
+
+            <ProfileCard />
           </>
         )}
 
@@ -1649,9 +1901,23 @@ function Content() {
           }
         >
           <form onSubmit={handleChangePassword} className="space-y-4">
+            {/* invisible but not display:none, so password managers pair the
+                new password with the UUID and update the right entry */}
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              value={uuid ?? ''}
+              readOnly
+              aria-hidden="true"
+              tabIndex={-1}
+              className="sr-only"
+            />
             <PasswordInput
               id="change-current-password"
               label="Current Password"
+              name="current-password"
+              autoComplete="current-password"
               value={changePasswordData.currentPassword}
               required
               placeholder="Enter your current password"
@@ -1665,6 +1931,8 @@ function Content() {
             <PasswordInput
               id="change-new-password"
               label="New Password"
+              name="new-password"
+              autoComplete="new-password"
               value={changePasswordData.newPassword}
               required
               placeholder="Enter your new password"
@@ -1678,6 +1946,8 @@ function Content() {
             <PasswordInput
               id="change-confirm-new-password"
               label="Confirm New Password"
+              name="confirm-new-password"
+              autoComplete="new-password"
               value={changePasswordData.confirmNewPassword}
               required
               placeholder="Re-enter your new password"
@@ -1734,6 +2004,8 @@ function Content() {
             <div className="space-y-4">
               <PasswordInput
                 label="Password"
+                id="delete-confirm-password"
+                name="password"
                 value={confirmDeletionPassword}
                 required
                 placeholder="Enter your password to confirm deletion"
@@ -1929,6 +2201,131 @@ function Content() {
           baseUrl={baseUrl}
           initialManifestUrl={manifestUrl}
         />
+
+        {/* Newznab / Torznab indexer modal */}
+        <Modal
+          open={nabIndexerModal.isOpen}
+          onOpenChange={nabIndexerModal.toggle}
+          title="Newznab / Torznab Indexer"
+          description="Use AIOStreams as a newznab/torznab indexer in Prowlarr, Sonarr or Radarr"
+        >
+          <div className="flex flex-col gap-5">
+            <p className="text-xs text-gray-400">
+              Add a <span className="text-gray-200">Generic Newznab</span>{' '}
+              (usenet) or <span className="text-gray-200">Generic Torznab</span>{' '}
+              (torrent) indexer. Only ID and season/episode searches are
+              supported — free-text searches return no results.
+            </p>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-white">Newznab URL</p>
+              <div className="flex items-center gap-2">
+                <TextInput
+                  type="text"
+                  readOnly
+                  value={newznabUrl}
+                  className="flex-1 font-mono text-sm"
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <Button
+                  onClick={copyNewznabUrl}
+                  intent="primary"
+                  className="shrink-0 px-3"
+                  aria-label="Copy Newznab URL"
+                >
+                  <CopyIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-white">Torznab URL</p>
+              <div className="flex items-center gap-2">
+                <TextInput
+                  type="text"
+                  readOnly
+                  value={torznabUrl}
+                  className="flex-1 font-mono text-sm"
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <Button
+                  onClick={copyTorznabUrl}
+                  intent="primary"
+                  className="shrink-0 px-3"
+                  aria-label="Copy Torznab URL"
+                >
+                  <CopyIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-white">API Key</p>
+              <div className="flex items-center gap-2">
+                <TextInput
+                  type="text"
+                  readOnly
+                  value={nabApiKey}
+                  className="flex-1 font-mono text-sm"
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <Button
+                  onClick={copyNabApiKey}
+                  intent="primary"
+                  className="shrink-0 px-3"
+                  aria-label="Copy API key"
+                >
+                  <CopyIcon className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500">
+                Paste this into the indexer's API Key field.
+              </p>
+            </div>
+          </div>
+        </Modal>
+
+        {/* Search API modal */}
+        <Modal
+          open={searchApiModal.isOpen}
+          onOpenChange={searchApiModal.toggle}
+          title="Search API"
+          description="Query your stream pipeline as JSON"
+        >
+          <div className="flex flex-col gap-5">
+            <p className="text-xs text-gray-400">
+              <span className="font-mono text-gray-200">
+                GET {searchApiUrl}
+              </span>{' '}
+              with query params <span className="text-gray-200">type</span> and{' '}
+              <span className="text-gray-200">id</span>, authenticated with an{' '}
+              <span className="text-gray-200">
+                Authorization: Basic base64(uuid:password)
+              </span>{' '}
+              header.
+            </p>
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-white">Endpoint</p>
+              <div className="flex items-center gap-2">
+                <TextInput
+                  type="text"
+                  readOnly
+                  value={searchApiUrl}
+                  className="flex-1 font-mono text-sm"
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <Button
+                  onClick={copySearchApiUrl}
+                  intent="primary"
+                  className="shrink-0 px-3"
+                  aria-label="Copy Search API URL"
+                >
+                  <CopyIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Modal>
 
         <Modal
           open={jellyfinModal.isOpen}

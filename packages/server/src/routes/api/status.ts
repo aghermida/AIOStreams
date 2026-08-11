@@ -9,7 +9,7 @@ import {
 } from '@aiostreams/core';
 import { StatusResponse } from '@aiostreams/core';
 import { encryptString } from '@aiostreams/core';
-import { RegexAccess, FeatureControl } from '@aiostreams/core';
+import { RegexAccess, FeatureControl, isOidcAvailable } from '@aiostreams/core';
 import { createResponse } from '../../utils/responses.js';
 import { getSeanimeExtensionVersion } from '../../utils/seanime.js';
 
@@ -43,6 +43,14 @@ const statusInfo = async (): Promise<StatusResponse> => {
           : undefined,
       alternateDesign: appConfig.branding.alternateDesign,
       protected: appConfig.api.authRequired,
+      // Public endpoint: the button renders pre-auth, so nothing identifying
+      // the provider goes here.
+      oidc: {
+        enabled: isOidcAvailable(),
+        buttonLabel: appConfig.oidc.buttonLabel,
+        autoRedirect: appConfig.oidc.autoRedirect,
+        localLoginEnabled: appConfig.oidc.allowLocalLogin,
+      },
       tmdbApiAvailable: !!appConfig.metadata.tmdb.accessToken,
       regexAccess: {
         level: appConfig.userLimits.regex.access,
@@ -52,8 +60,19 @@ const statusInfo = async (): Promise<StatusResponse> => {
         level: appConfig.userLimits.sel.access,
         trustedUrls: SelAccess.getAllowedUrls(),
       },
+      variants: {
+        access: appConfig.userLimits.variants.access,
+        max: appConfig.userLimits.variants.max,
+        maxScriptLength: appConfig.userLimits.variants.maxScriptLength,
+        maxInstructions: appConfig.userLimits.variants.maxInstructions,
+        maxActive: appConfig.userLimits.variants.maxActive,
+        maxValueDepth: appConfig.userLimits.variants.maxValueDepth,
+        maxPathSegments: appConfig.userLimits.variants.maxPathSegments,
+        maxPathMatches: appConfig.userLimits.variants.maxPathMatches,
+      },
       loggingSensitiveInfo: appConfig.logging.logSensitiveInfo,
       searchApiDisabled: !appConfig.api.enableSearchApi,
+      nabApiDisabled: !appConfig.api.enableNabApi,
       seanimeExtensionVersion: getSeanimeExtensionVersion(),
       analyticsEnabled: appConfig.analytics.enabled !== false,
       userAnalyticsEnabled:
@@ -121,7 +140,8 @@ const statusInfo = async (): Promise<StatusResponse> => {
         maxStreamExpressionsTotalCharacters:
           appConfig.userLimits.sel.maxExpressionCharacters,
         maxAddons: appConfig.userLimits.maxAddons,
-        maxNzbFailoverCount: appConfig.userLimits.maxNzbFailoverCount,
+        maxFailoverAttempts: appConfig.userLimits.maxFailoverAttempts,
+        maxParallelAttempts: appConfig.userLimits.maxParallelAttempts,
         maxBackgroundPings: appConfig.userLimits.maxBackgroundPings,
       },
     },

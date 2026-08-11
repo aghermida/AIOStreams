@@ -1,6 +1,6 @@
 import { PARSE_REGEX } from './regex.js';
 import { ParsedFile } from '../db/schemas.js';
-import { Parser, handlers } from '@viren070/parse-torrent-title';
+import { parseTorrentTitleCached } from './title.js';
 import { RESOLUTIONS } from '../utils/constants.js';
 import { mapLanguageCode, convertLangCodeToName } from '../utils/languages.js';
 
@@ -58,15 +58,14 @@ function matchMultiplePatterns(
 }
 
 class FileParser {
-  private static parser = new Parser().addHandlers(
-    handlers.filter((handler) => handler.field !== 'country')
-  );
-
   static parse(filename: string): ParsedFile {
-    const parsed = this.parser.parse(filename);
+    // `parsed` is shared by the memo, so the title is adjusted in a local
+    // instead of on the object.
+    const parsed = parseTorrentTitleCached(filename);
+    let parsedTitle = parsed.title;
     if (
       ['vinland', 'furiosaamadmax', 'horizonanamerican'].includes(
-        (parsed.title || '')
+        (parsedTitle || '')
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '')
           .replace(/[^\p{L}\p{N}+]/gu, '')
@@ -74,11 +73,11 @@ class FileParser {
       ) &&
       parsed.complete
     ) {
-      parsed.title += ' Saga';
+      parsedTitle = `${parsedTitle} Saga`;
     }
     // prevent the title from being parsed for info
-    if (parsed.title && parsed.title.length > 4) {
-      const escapedTitle = parsed.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (parsedTitle && parsedTitle.length > 4) {
+      const escapedTitle = parsedTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const titleRegex = new RegExp(escapedTitle.replace(/ /g, '[._ ]'), 'i');
       filename = filename.replace(titleRegex, '').trim();
       filename = filename.replace(/\s+/g, '.').replace(/^\.+|\.+$/g, '');
@@ -122,8 +121,10 @@ class FileParser {
 
     const releaseGroup =
       filename.match(PARSE_REGEX.releaseGroup)?.[1] ?? parsed.group;
-    const title = parsed.title;
+    const title = parsedTitle;
     const year = parsed.year ? parsed.year.toString() : undefined;
+    const country = parsed.country;
+    const episodeTitle = parsed.episodeTitle;
 
     return {
       resolution,
@@ -137,11 +138,14 @@ class FileParser {
       releaseGroup,
       title,
       year,
+      country,
+      episodeTitle,
       subbed: parsed.subbed ?? false,
       dubbed: parsed.dubbed ?? false,
       editions: parsed.editions,
       regraded: parsed.regraded ?? false,
       repack: parsed.repack ?? false,
+      proper: parsed.proper ?? false,
       uncensored: parsed.uncensored ?? false,
       unrated: parsed.unrated ?? false,
       upscaled: parsed.upscaled ?? false,

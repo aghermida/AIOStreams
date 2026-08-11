@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import * as constants from '../utils/constants.js';
 import { config } from '../config/index.js';
+import { WD1_KEY_REGEX } from '../release-blocklist/keys.js';
 
 /**
  * Stream Expression Language string with a runtime-configurable maximum length
@@ -258,6 +259,21 @@ const DeduplicatorOptions = z.object({
   libraryBehaviour: z
     .enum(constants.DEDUPLICATOR_LIBRARY_BEHAVIOURS)
     .optional(),
+  tiebreakers: z
+    .array(
+      z.object({
+        type: z.enum(constants.DEDUPLICATOR_TIEBREAKERS),
+        position: z.enum(['before_addon', 'after_addon']),
+      })
+    )
+    .optional(),
+  merge: z
+    .object({
+      enabled: z.boolean().optional(),
+      failoverVariants: z.boolean().optional(), // harvest same-release failover URLs
+      fields: z.array(z.enum(constants.DEDUPLICATOR_MERGE_FIELDS)).optional(), // metadata to merge
+    })
+    .optional(),
 });
 
 const OptionDefinition = z.looseObject({
@@ -281,7 +297,14 @@ const OptionDefinition = z.looseObject({
     'oauth',
     'subsection',
     'custom-nntp-servers',
+    'nab-endpoint',
   ]),
+  nab: z
+    .object({
+      namespace: z.enum(['newznab', 'torznab']),
+      preset: z.string().min(1),
+    })
+    .optional(),
   oauth: z
     .object({
       authorisationUrl: z.string().url(),
@@ -299,6 +322,8 @@ const OptionDefinition = z.looseObject({
       z.object({
         value: z.any(),
         label: z.string().min(1),
+        // for 'nab-endpoint': where this indexer shows the user their api key
+        apiKeyUrl: z.string().url().optional(),
       })
     )
     .optional(),
@@ -412,6 +437,43 @@ export const CacheAndPlaySchema = z
 
 export type CacheAndPlay = z.infer<typeof CacheAndPlaySchema>;
 
+/**
+ * Config Expression Language script with a runtime-configurable maximum length
+ * pulled from `config.userLimits.variants.maxScriptLength`.
+ */
+function variantScript() {
+  return z.string().superRefine((value, ctx) => {
+    const max = config.userLimits.variants.maxScriptLength;
+    if (value.length > max) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Variant script exceeds maximum length of ${max} characters.`,
+      });
+    }
+  });
+}
+
+export const VariantSchema = z.object({
+  // The id appears verbatim in the install URL and in the Stremio addon id.
+  id: z
+    .string()
+    .regex(
+      /^[a-z0-9][a-z0-9_-]{0,31}$/,
+      'Variant id must be 1-32 characters: lowercase letters, digits, "-" or "_", starting with a letter or digit.'
+    ),
+  /** Display label only. Use `set addonName = ...` to rebrand in Stremio. */
+  name: z.string().min(1).max(64).optional(),
+  enabled: z.boolean().optional(),
+  script: variantScript(),
+});
+
+export type Variant = z.infer<typeof VariantSchema>;
+
+export const VariantSelectorLocationSchema = z.enum(['query', 'path']);
+export type VariantSelectorLocation = z.infer<
+  typeof VariantSelectorLocationSchema
+>;
+
 const MergeStrategy = z.enum(['inherit', 'extend', 'override']);
 const BinaryMergeStrategy = z.enum(['inherit', 'override']);
 
@@ -441,6 +503,25 @@ export type ParentConfig = z.infer<typeof ParentConfigSchema>;
 export const UserDataSchema = z.object({
   uuid: z.string().uuid().optional(),
   parentConfig: ParentConfigSchema.optional(),
+  variants: z
+    .array(VariantSchema)
+    .superRefine((variants, ctx) => {
+      const seen = new Set<string>();
+      for (const variant of variants) {
+        if (seen.has(variant.id)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Duplicate variant id "${variant.id}".`,
+          });
+        }
+        seen.add(variant.id);
+      }
+    })
+    .optional(),
+  /** Request scoped: the variant ids applied to this instance. Never persisted. */
+  activeVariants: z.array(z.string()).optional(),
+  /** Request scoped: where the selector sat in the URL. Never persisted. */
+  variantSelectorLocation: VariantSelectorLocationSchema.optional(),
   encryptedPassword: z.string().min(1).optional(),
   trusted: z.boolean().optional(),
   showChanges: z.boolean().optional(),
@@ -683,6 +764,10 @@ export const UserDataSchema = z.object({
     (v) => (v === '' ? undefined : v),
     z.string().url().optional()
   ),
+  openposterdbParameters: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().optional()
+  ),
   posterService: z
     .enum(['rpdb', 'top-poster', 'aioratings', 'openposterdb', 'none'])
     .optional(),
@@ -713,6 +798,7 @@ export const UserDataSchema = z.object({
       enabled: z.boolean().optional(),
       tolerance: z.number().min(0).max(100).optional(),
       strict: z.boolean().optional(),
+      strictTypes: z.array(z.string()).optional(),
       useInitialAirDate: z.boolean().optional(),
       requestTypes: z.array(z.string()).optional(),
       addons: z.array(z.string()).optional(),
@@ -725,6 +811,7 @@ export const UserDataSchema = z.object({
       yearTolerance: z.number().min(0).max(100).optional(),
       similarityThreshold: z.number().min(0).max(1).optional(),
       enabled: z.boolean().optional(),
+      ambiguousResults: z.enum(['keep', 'discard']).optional(),
       requestTypes: z.array(z.string()).optional(),
       addons: z.array(z.string()).optional(),
     })
@@ -735,6 +822,20 @@ export const UserDataSchema = z.object({
       strict: z.boolean().optional(),
       requestTypes: z.array(z.string()).optional(),
       addons: z.array(z.string()).optional(),
+    })
+    .optional(),
+  episodeTitleMatching: z
+    .object({
+      enabled: z.boolean().optional(),
+      similarityThreshold: z.number().min(0).max(1).optional(),
+      requestTypes: z.array(z.string()).optional(),
+      addons: z.array(z.string()).optional(),
+    })
+    .optional(),
+  languageInference: z
+    .object({
+      enabled: z.boolean().optional(),
+      sources: z.array(z.enum(['title', 'episodeTitle'])).optional(),
     })
     .optional(),
   deduplicator: DeduplicatorOptions.optional(),
@@ -778,11 +879,32 @@ export const UserDataSchema = z.object({
 
   autoRemoveDownloads: z.boolean().optional(),
   checkOwned: z.boolean().optional().default(true),
-  nzbFailover: z
+  failover: z
     .object({
       enabled: z.boolean().optional(),
-      count: z.number().min(1).optional(),
-      position: z.enum(['beforeLimiting', 'beforeSEL', 'last']).optional(),
+      /** Which result kinds may appear as failover targets. Default ['usenet']. */
+      contentTypes: z.array(z.enum(['usenet', 'debrid'])).optional(),
+      /** Allow a click on one kind to fail over into a different kind. Default false. */
+      allowCrossType: z.boolean().optional(),
+      /** Max total failover attempts (after de-duplication) tried after the clicked item. */
+      maxAttempts: z.number().min(1).optional(),
+      /** Attempts in flight at once. 1 (default) = sequential = current behaviour. */
+      parallel: z.number().min(1).optional(),
+      /** Delay before starting the next parallel attempt (ms). */
+      staggerMs: z.number().min(0).optional(),
+      /** How long a ready lower-priority result waits for the clicked / higher-ranked item to catch up before being accepted (ms, parallel only). */
+      preferredGraceMs: z.number().min(0).optional(),
+      /** Overall deadline before giving up and serving a static error (ms). */
+      maxWaitMs: z.number().min(0).optional(),
+      position: z.enum(['beforeSEL', 'beforeLimiting', 'last']).optional(),
+      /** When true, failover is also applied during background pre-caching of the next episode. Default false. */
+      precacheFailover: z.boolean().optional(),
+      /** Include non-owned addon debrid URLs (resolved by probing) as failover targets. Default false. */
+      includeExternalFailover: z.boolean().optional(),
+      /** Max same-release variant attempts tried per release before moving on (0 disables). */
+      sameReleaseLimit: z.number().min(0).optional(),
+      /** Delay between launching same-release variant attempts (ms). Default 0. */
+      duplicateStaggerMs: z.number().min(0).optional(),
     })
     .optional(),
   serviceWrap: z
@@ -905,9 +1027,17 @@ export const NNTPServersSchema = z.array(NNTPServerSchema);
 
 export type NNTPServers = z.infer<typeof NNTPServersSchema>;
 
+export const ReleaseKeySchema = z
+  .string()
+  .regex(WD1_KEY_REGEX)
+  .optional()
+  .catch(undefined);
+
 export const StreamSchema = z.looseObject({
   url: z.string().or(z.null()).optional(),
   nzbUrl: z.string().or(z.null()).optional(),
+  releaseKey: ReleaseKeySchema,
+  idMatched: z.boolean().optional(),
   servers: z.array(z.string().min(1)).nullable().optional(),
   rarUrls: z.array(SourceSchema).nullable().optional(),
   zipUrls: z.array(SourceSchema).nullable().optional(),
@@ -963,6 +1093,8 @@ export const ParsedFileSchema = z.object({
   dubbed: z.boolean().optional(),
   title: z.string().optional(),
   year: z.coerce.string().optional(),
+  country: z.string().optional(),
+  episodeTitle: z.string().optional(),
   seasons: z.array(z.number()).optional(),
   volumes: z.array(z.number()).optional(),
   folderSeasons: z.array(z.number()).optional(),
@@ -971,6 +1103,7 @@ export const ParsedFileSchema = z.object({
   episodes: z.array(z.number()).optional(),
   editions: z.array(z.string()).optional(),
   regraded: z.boolean().optional(),
+  proper: z.boolean().optional(),
   repack: z.boolean().optional(),
   uncensored: z.boolean().optional(),
   unrated: z.boolean().optional(),
@@ -1045,15 +1178,35 @@ export const ParsedStreamSchema = z.object({
   /**Bitrate in bps */
   bitrate: z.number().optional(),
   library: z.boolean().optional(),
+  /** Upstream matched this release against an ID-indexed source, not a text search. */
+  idMatched: z.boolean().optional(),
   seadex: z
     .object({
       isBest: z.boolean(),
       isSeadex: z.boolean(),
+      method: z.enum(['hash', 'group']).optional(),
     })
     .optional(),
   passthrough: PassthroughSchema.optional(),
   url: z.string().optional(),
   nzbUrl: z.string().optional(),
+  releaseKey: ReleaseKeySchema,
+  // Same-release failover targets harvested from discarded duplicates by the
+  // deduplicator merge step. Each is another playback URL for the *same*
+  // release (a different indexer's NZB or another addon's debrid link).
+  failoverVariants: z
+    .array(
+      z.object({
+        url: z.string(),
+        type: z.enum(['usenet', 'debrid']),
+        serviceId: z.string().optional(),
+        filename: z.string().optional(),
+        identity: z.string().optional(), // nzbUrl | infoHash | external host+path
+        kind: z.enum(['owned', 'external']).optional(), // default 'owned'
+        proxied: z.boolean().optional(), // computed at merge time
+      })
+    )
+    .optional(),
   servers: z.array(z.string().min(1)).optional(),
   rarUrls: z.array(SourceSchema).nullable().optional(),
   zipUrls: z.array(SourceSchema).nullable().optional(),
@@ -1062,6 +1215,8 @@ export const ParsedStreamSchema = z.object({
   tarUrls: z.array(SourceSchema).nullable().optional(),
   ytId: z.string().min(1).optional(),
   externalUrl: z.string().min(1).optional(),
+  /** Whether the stream has been selected for preloading, should be set to true if the stream is selected */
+  preloading: z.boolean().optional(),
   error: z
     .object({
       title: z.string().min(1),
@@ -1071,6 +1226,7 @@ export const ParsedStreamSchema = z.object({
   originalName: z.string().optional(),
   originalDescription: z.string().optional(),
   extra: z.record(z.string(), z.any()).optional(),
+  otherBehaviorHints: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type ParsedFile = z.infer<typeof ParsedFileSchema>;
@@ -1100,7 +1256,7 @@ const MetaVideoSchema = z
     id: z.string(),
     title: z.string().or(z.null()).optional(),
     name: z.string().or(z.null()).optional(),
-    released: z.string().datetime().or(z.null()).optional(),
+    released: z.string().nullable().optional(),
     thumbnail: z.string().or(z.null()).optional(),
     streams: z.array(StreamSchema).or(z.null()).optional(),
     available: z.boolean().or(z.null()).optional(),
@@ -1250,6 +1406,7 @@ export const AIOStream = StreamSchema.extend({
         .object({
           isBest: z.boolean(),
           isSeadex: z.boolean(),
+          method: z.enum(['hash', 'group']).optional(),
         })
         .optional(),
       size: z.number().optional(),
@@ -1258,6 +1415,7 @@ export const AIOStream = StreamSchema.extend({
       indexer: z.string().optional(),
       age: z.number().or(z.string()).optional(), // Age in hours since upload
       nzbUrl: z.string().or(z.null()).optional(),
+      releaseKey: ReleaseKeySchema,
       torrent: z
         .object({
           infoHash: z.string().min(1).optional(),
@@ -1322,6 +1480,12 @@ const StatusResponseSchema = z.object({
     featuredTemplateIds: z.array(z.string()).optional(),
     alternateDesign: z.boolean(),
     protected: z.boolean(),
+    oidc: z.object({
+      enabled: z.boolean(),
+      buttonLabel: z.string(),
+      autoRedirect: z.boolean(),
+      localLoginEnabled: z.boolean(),
+    }),
     regexAccess: z.object({
       level: z.enum(['none', 'trusted', 'all']),
       patterns: z.array(z.string()),
@@ -1332,8 +1496,19 @@ const StatusResponseSchema = z.object({
       level: z.enum(['all', 'trusted']),
       trustedUrls: z.array(z.string()).optional(),
     }),
+    variants: z.object({
+      access: z.enum(['none', 'trusted', 'all']),
+      max: z.number(),
+      maxScriptLength: z.number(),
+      maxInstructions: z.number(),
+      maxActive: z.number(),
+      maxValueDepth: z.number(),
+      maxPathSegments: z.number(),
+      maxPathMatches: z.number(),
+    }),
     loggingSensitiveInfo: z.boolean(),
     searchApiDisabled: z.boolean(),
+    nabApiDisabled: z.boolean(),
     seanimeExtensionVersion: z.string().nullable(),
     tmdbApiAvailable: z.boolean(),
     /** Global analytics master switch (false = no events written anywhere). */
@@ -1381,7 +1556,8 @@ const StatusResponseSchema = z.object({
       maxStreamExpressions: z.number(),
       maxStreamExpressionsTotalCharacters: z.number(),
       maxAddons: z.number(),
-      maxNzbFailoverCount: z.number(),
+      maxFailoverAttempts: z.number(),
+      maxParallelAttempts: z.number(),
       maxBackgroundPings: z.number(),
     }),
   }),

@@ -130,16 +130,16 @@ export const rateLimitsSchema = {
     envPrefix: 'STREMIO_META',
     label: 'Stremio meta',
   }),
-  easynewsNzb: rateLimit({
-    windowDefault: 60,
-    maxDefault: 15,
-    envPrefix: 'EASYNEWS_NZB',
-    label: 'Easynews NZB',
-  }),
   login: rateLimit({
     windowDefault: 300,
     maxDefault: 5,
     envPrefix: 'LOGIN',
     label: 'login',
+  }),
+  oidc: rateLimit({
+    windowDefault: 300,
+    maxDefault: 20,
+    envPrefix: 'OIDC',
+    label: 'SSO login',
   }),
 } as const satisfies RuntimeConfigSection;

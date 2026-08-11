@@ -6,6 +6,8 @@ import {
   SERVICE_DETAILS,
   DEFAULT_PRECACHE_SELECTOR,
   DEFAULT_SMART_DETECT_ATTRIBUTES,
+  DEFAULT_FAILOVER_CONTENT_TYPES,
+  DEFAULT_FAILOVER_PARALLEL,
 } from '../../../core/src/utils/constants';
 import { useStatus } from './status';
 
@@ -215,6 +217,25 @@ export function applyMigrations(config: any): UserData {
     delete config.p2pWrap;
   }
 
+  // migrate nzbFailover -> generic failover (usenet-only, sequential = old behaviour)
+  if (config.failover === undefined && config.nzbFailover !== undefined) {
+    config.failover = {
+      enabled: config.nzbFailover.enabled,
+      maxAttempts: config.nzbFailover.count,
+      position: config.nzbFailover.position,
+      contentTypes: [...DEFAULT_FAILOVER_CONTENT_TYPES],
+      allowCrossType: false,
+      parallel: DEFAULT_FAILOVER_PARALLEL,
+    };
+  }
+  delete config.nzbFailover;
+
+  // migrate failover.count -> failover.maxAttempts (renamed)
+  if (config.failover && (config.failover as any).count !== undefined) {
+    config.failover.maxAttempts ??= (config.failover as any).count;
+    delete (config.failover as any).count;
+  }
+
   // migrate stream expressions from string[] to {expression, enabled}[]
   const streamExpressionKeys = [
     'excludedStreamExpressions',
@@ -253,6 +274,49 @@ export function applyMigrations(config: any): UserData {
     });
   }
 
+  // migrate nab url/apiKey/apiPath options into a single `api` object holding
+  // the complete endpoint
+  if (config.presets && Array.isArray(config.presets)) {
+    // [urlOption, apiKeyOption, urlIsBaseOnly]
+    const nabOptionKeys: Record<string, [string, string, boolean?]> = {
+      newznab: ['newznabUrl', 'apiKey'],
+      torznab: ['torznabUrl', 'apiKey'],
+      nzbhydra: ['nzbhydraUrl', 'nzbhydraApiKey', true],
+    };
+    config.presets = config.presets.map((preset: any) => {
+      const keys = nabOptionKeys[preset.type];
+      if (!keys || !preset.options || preset.options.api !== undefined) {
+        return preset;
+      }
+      const [urlKey, apiKeyKey, urlIsBaseOnly] = keys;
+      const {
+        [urlKey]: url,
+        [apiKeyKey]: apiKey,
+        apiPath,
+        ...rest
+      } = preset.options;
+      if (url === undefined && apiKey === undefined && apiPath === undefined) {
+        return preset;
+      }
+      const api: { url?: string; apiKey?: string } = {};
+      // a preconfigured NZBHydra stores no url, and must not gain a bare '/api'
+      if (typeof url === 'string' && url.trim()) {
+        const base = url.trim().replace(/\/+$/, '');
+        if (urlIsBaseOnly) {
+          api.url = base;
+        } else {
+          const path = apiPath === undefined ? '/api' : String(apiPath).trim();
+          const normalised = path.replace(/^\/+|\/+$/g, '');
+          api.url = base + (normalised ? `/${normalised}` : '');
+        }
+      }
+      if (apiKey !== undefined) {
+        api.apiKey = apiKey;
+      }
+      return { ...preset, options: { ...rest, api } };
+    });
+  }
+
   if (config.formatter && config.formatter.definition) {
     config.formatter.definitions = {
       ...(config.formatter.definitions ?? {}),
@@ -285,6 +349,12 @@ export function removeInvalidPresetReferences(config: UserData) {
   if (config.seasonEpisodeMatching) {
     config.seasonEpisodeMatching.addons =
       config.seasonEpisodeMatching.addons?.filter((addon) =>
+        existingPresetIds?.includes(addon)
+      );
+  }
+  if (config.episodeTitleMatching) {
+    config.episodeTitleMatching.addons =
+      config.episodeTitleMatching.addons?.filter((addon) =>
         existingPresetIds?.includes(addon)
       );
   }
@@ -419,6 +489,14 @@ export const DefaultUserData: UserData = {
   seasonEpisodeMatching: {
     addons: [],
     requestTypes: [],
+  },
+  episodeTitleMatching: {
+    addons: [],
+    requestTypes: [],
+  },
+  languageInference: {
+    enabled: true,
+    sources: [],
   },
   yearMatching: {
     addons: [],

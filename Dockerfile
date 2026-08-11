@@ -8,6 +8,15 @@ FROM base AS builder
 
 WORKDIR /build
 
+# Build toolchain for native addons that lack prebuilt binaries on this platform
+# (e.g. yencode, used by the native usenet engine, has no linux/arm64 prebuild and
+# must be compiled with node-gyp → needs Python + a C/C++ toolchain). These tools
+# live only in the builder/runtime stages; the final distroless image just copies
+# the already-compiled .node binaries, so it stays clean.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
 # Copy LICENSE file.
 COPY LICENSE ./
 
@@ -74,6 +83,13 @@ COPY --from=builder /build/node_modules ./node_modules
 COPY --from=builder /build/packages/core/node_modules ./packages/core/node_modules
 COPY --from=builder /build/packages/server/node_modules ./packages/server/node_modules
 
+
+FROM debian:12-slim AS mimalloc
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends libmimalloc2.0 \
+  && rm -rf /var/lib/apt/lists/* \
+  && cp /usr/lib/*/libmimalloc.so.2 /usr/local/lib/libmimalloc.so.2
+
 FROM gcr.io/distroless/nodejs24-debian12 AS production
 
 LABEL org.opencontainers.image.title="AIOStreams"
@@ -85,6 +101,8 @@ WORKDIR /app
 
 COPY --from=busybox:1.36.0-uclibc /bin/wget /bin/wget
 COPY --from=busybox:1.36.0-uclibc /bin/sh /bin/sh
+COPY --from=mimalloc /usr/local/lib/libmimalloc.so.2 /usr/local/lib/libmimalloc.so.2
+ENV LD_PRELOAD=/usr/local/lib/libmimalloc.so.2
 COPY --from=runtime /runtime /app
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \

@@ -267,7 +267,7 @@ resolution(streams, '2160p', '1080p')
 
 Filter by quality tag.
 
-**Accepted values:** `'Bluray REMUX'` `'Bluray'` `'WEB-DL'` `'WEBRip'` `'HDRip'` `'HC HD-Rip'` `'DVDRip'` `'HDTV'` `'CAM'` `'TS'` `'TC'` `'SCR'` `'Unknown'`
+**Accepted values:** `'Bluray REMUX'` `'Bluray'` `'WEB-DL'` `'WEBRip'` `'HDRip'` `'HC HD-Rip'` `'DVD REMUX'` `'DVDRip'` `'HDTV'` `'CAM'` `'TS'` `'TC'` `'SCR'` `'Unknown'`
 
 ```
 quality(streams, 'Bluray', 'WEB-DL')
@@ -416,7 +416,7 @@ bitrate(streams, '5Mbps')
 
 Filter by Debrid service.
 
-**Accepted values:** `'realdebrid'` `'debridlink'` `'alldebrid'` `'torbox'` `'pikpak'` `'seedr'` `'offcloud'` `'premiumize'` `'easynews'` `'nzbdav'` `'altmount'` `'stremio_nntp'` `'easydebrid'` `'debrider'`
+**Accepted values:** `'realdebrid'` `'debridlink'` `'premiumize'` `'alldebrid'` `'torbox'` `'easydebrid'` `'debrider'` `'putio'` `'pikpak'` `'offcloud'` `'seedr'` `'easynews'` `'nzbdav'` `'altmount'` `'stremio_nntp'` `'stremthru_newz'` `'aiostreams'` `'torrin'`
 
 ```
 service(streams, 'realdebrid', 'torbox')
@@ -490,6 +490,39 @@ library(streams)
 
 ---
 
+#### `idMatched()`
+
+Filter for streams whose source identified the release by **external ID** rather than by searching its
+title as text.
+
+This is the case when a built-in addon queries something like an `imdbid`/`tvdbid`/`tmdbid` against a
+database that is actually indexed by those IDs — most commonly ID search on your own Newznab/Torznab
+indexers. Such a result is already known to be the right release, so it is a good candidate to let
+skip AIOStreams' own filename-derived matching filters via [`passthrough()`](#passthrough).
+
+Streams are flagged by: **Newznab** and **Torznab** (when the search used an ID parameter rather than
+falling back to a `q=` text query), **EZTV**, **SeaDex**, and the **Library** addon.
+
+```
+passthrough(idMatched(streams), 'title', 'year', 'episode')
+```
+
+<Callout type="warn">
+  Meta-indexers accept an ID search but silently fall back to a title search for any underlying
+  indexer that doesn't support that ID — so results from an **NZBHydra2** endpoint entered as a 
+  custom Newznab/Torznab URL for example, get flagged without having been
+  ID-matched. If you use one, scope the expression to the addons you trust:
+  `passthrough(idMatched(addon(streams, 'DrunkenSlug')), 'title', 'episode')`.
+</Callout>
+
+<Callout type="info">
+  The flag belongs to whichever copy of a release carried it, so it is lost if a duplicate from
+  another addon wins deduplication. To keep it, enable **Merge Duplicates** under **Filters →
+  Deduplicator** and add `idMatched` to **Merged Metadata Fields**.
+</Callout>
+
+---
+
 #### `message()`
 
 Filter by a stream's `message` property.
@@ -510,10 +543,13 @@ message(streams, 'includes', 'cached')
 
 Filter for [SeaDex](https://releases.moe)-listed streams (best anime releases).
 
-| Parameter | Type               | Description                                                                     |
-| --------- | ------------------ | ------------------------------------------------------------------------------- |
-| `streams` | `ParsedStream[]`   | Stream list                                                                     |
-| `type`    | `'best' \| 'all'?` | `'best'` for only SeaDex "Best" entries; omit or `'all'` for all SeaDex matches |
+Streams are matched against SeaDex in two ways: by **info hash** (exact, the stream is one of the listed torrents) or, when the hash doesn't match, by **release group** (heuristic, the stream comes from a group listed on the SeaDex entry).
+
+| Parameter | Type                        | Description                                                                                                              |
+| --------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `streams` | `ParsedStream[]`            | Stream list                                                                                                              |
+| `type`    | `'best' \| 'alt' \| 'all'?` | `'best'` for only SeaDex "Best" entries; `'alt'` for listed-but-not-best entries; omit or `'all'` for all SeaDex matches |
+| `method`  | `'hash' \| 'group'?`        | Restrict to a match method; omit for both. Use `'hash'` if you only want exact matches                                   |
 
 <Callout type="info">
   Only active when SeaDex integration is enabled under **Filters →
@@ -522,6 +558,8 @@ Filter for [SeaDex](https://releases.moe)-listed streams (best anime releases).
 
 ```
 seadex(streams, 'best')
+seadex(streams, 'all', 'hash')
+seadex(streams, 'best', 'hash')
 ```
 
 ---
@@ -682,6 +720,9 @@ When used in an **Excluded Stream Expression**: flagged streams won't be removed
 ```
 passthrough(streams, 'language', 'limit')
 passthrough(streams)  // bypass all stages
+
+// let results your indexer matched by ID skip filename-based matching
+passthrough(idMatched(streams), 'title', 'year', 'episode')
 ```
 
 ---

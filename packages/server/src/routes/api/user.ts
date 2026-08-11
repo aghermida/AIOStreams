@@ -6,7 +6,10 @@ import {
   constants,
   createLogger,
   encryptString,
+  getConfigAccessKey,
   hmac,
+  Permission,
+  sessionHasPermission,
   UserRepository,
   type UserAnalyticsRange,
 } from '@aiostreams/core';
@@ -66,7 +69,7 @@ router.head('/', async (req, res, next) => {
 router.get('/', async (req, res, next) => {
   let creds;
   try {
-    creds = parseBasicAuthHeader(req);
+    creds = parseBasicAuthHeader(req, { allowEncrypted: false });
   } catch (error) {
     next(error);
     return;
@@ -143,6 +146,22 @@ router.post('/', async (req, res, next) => {
     );
     return;
   }
+  // Only meaningful while the config-write gate is active; with it off, config
+  // creation is public and there is no session to check.
+  if (
+    getConfigAccessKey() &&
+    req.user &&
+    !sessionHasPermission(req.user, Permission.CreateConfig)
+  ) {
+    next(
+      new APIError(
+        constants.ErrorCode.FORBIDDEN,
+        undefined,
+        'Your account is not allowed to create configurations'
+      )
+    );
+    return;
+  }
   injectAccessKey(req, config);
   try {
     const { uuid, encryptedPassword } = await UserRepository.createUser(
@@ -172,7 +191,7 @@ router.post('/', async (req, res, next) => {
 router.put('/', async (req, res, next) => {
   let creds;
   try {
-    creds = parseBasicAuthHeader(req);
+    creds = parseBasicAuthHeader(req, { allowEncrypted: false });
   } catch (error) {
     next(error);
     return;
@@ -228,7 +247,7 @@ router.put('/', async (req, res, next) => {
 router.delete('/', async (req, res, next) => {
   let creds;
   try {
-    creds = parseBasicAuthHeader(req);
+    creds = parseBasicAuthHeader(req, { allowEncrypted: false });
   } catch (error) {
     next(error);
     return;
@@ -267,7 +286,7 @@ router.delete('/', async (req, res, next) => {
 router.post('/password', async (req, res, next) => {
   let creds;
   try {
-    creds = parseBasicAuthHeader(req);
+    creds = parseBasicAuthHeader(req, { allowEncrypted: false });
   } catch (error) {
     next(error);
     return;
@@ -327,7 +346,7 @@ router.post('/password', async (req, res, next) => {
 router.post('/verify', async (req, res, next) => {
   let creds;
   try {
-    creds = parseBasicAuthHeader(req);
+    creds = parseBasicAuthHeader(req, { allowEncrypted: false });
   } catch (error) {
     next(error);
     return;
@@ -372,7 +391,7 @@ router.post('/verify', async (req, res, next) => {
 router.get('/analytics', async (req, res, next) => {
   let creds;
   try {
-    creds = parseBasicAuthHeader(req);
+    creds = parseBasicAuthHeader(req, { allowEncrypted: false });
   } catch (error) {
     next(error);
     return;
