@@ -25,8 +25,14 @@ jobs:
         run: |
           git remote add upstream https://github.com/Viren070/AIOStreams.git
           git fetch upstream
-          git merge upstream/main --no-edit || echo "No changes or conflicts"
-          git push origin main || echo "Nothing to push"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git merge upstream/main --no-edit; then
+            git merge --abort
+            echo "::error::Merge conflict syncing upstream/main into main. Resolve manually and merge via PR."
+            exit 1
+          fi
+          git push origin main
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
