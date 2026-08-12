@@ -776,9 +776,13 @@ router.delete('/users', async (req, res) => {
 /**
  * Admin-provisioned user creation, for private instances where friends
  * shouldn't need a site login. `parentConfig` (uuid+password of an existing
- * profile) clones that profile's settings via the same merge mechanism
- * self-service users get. The plaintext password is returned exactly once —
- * only a one-way hash and a separately-encrypted copy are stored afterward.
+ * profile) makes a one-time full copy of that profile's settings (services,
+ * addons, ordering, filters, everything) into the new user's own config —
+ * deliberately NOT the live parentConfig-link mechanism self-service "child"
+ * profiles use, since that leaves the new profile's own config nearly empty
+ * (inheriting at request time) and tied to the source profile going forward.
+ * The plaintext password is returned exactly once — only a one-way hash and
+ * a separately-encrypted copy are stored afterward.
  */
 router.post('/users', async (req, res) => {
   const body = (req.body ?? {}) as {
@@ -822,7 +826,32 @@ router.post('/users', async (req, res) => {
         }
       : undefined;
 
-  const newUserConfig = { parentConfig } as UserData;
+  let newUserConfig: UserData;
+  if (parentConfig) {
+    const sourceConfig = await UserRepository.getRawUser(
+      parentConfig.uuid,
+      parentConfig.password
+    );
+    if (!sourceConfig) {
+      return res.status(400).json(
+        createResponse({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'Source profile not found or password incorrect',
+          },
+        })
+      );
+    }
+    // Full independent copy, not a live link: drop identity/link fields so
+    // this becomes the new user's own config from this point forward.
+    newUserConfig = { ...sourceConfig };
+    delete newUserConfig.uuid;
+    delete newUserConfig.encryptedPassword;
+    delete newUserConfig.parentConfig;
+  } else {
+    newUserConfig = {} as UserData;
+  }
   injectAccessKey(req, newUserConfig);
   const { uuid, encryptedPassword } = await UserRepository.createUser(
     newUserConfig,
