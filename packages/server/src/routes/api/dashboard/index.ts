@@ -7,6 +7,9 @@ import {
   SettingsRepository,
   AnalyticsRepository,
   AdminUsersRepository,
+  UserRepository,
+  generatePassword,
+  type UserData,
   TaskManager,
   Cache,
   describeDiskCaches,
@@ -768,6 +771,96 @@ router.delete('/users', async (req, res) => {
     'users batch deleted'
   );
   res.status(200).json(createResponse({ success: true, data: { deleted } }));
+});
+
+/**
+ * Admin-provisioned user creation, for private instances where friends
+ * shouldn't need a site login. `parentConfig` (uuid+password of an existing
+ * profile) clones that profile's settings via the same merge mechanism
+ * self-service users get. The plaintext password is returned exactly once —
+ * only a one-way hash and a separately-encrypted copy are stored afterward.
+ */
+router.post('/users', async (req, res) => {
+  const body = (req.body ?? {}) as {
+    label?: unknown;
+    password?: unknown;
+    parentConfig?: { uuid?: unknown; password?: unknown };
+  };
+  const username =
+    (req as { user?: { username?: string } }).user?.username ?? 'admin';
+  const label = typeof body.label === 'string' ? body.label : undefined;
+  // Admin-typed passwords tend to get reused/shared; hold them to a higher
+  // floor than the generic 6-char minimum self-service accounts allow.
+  // Generated passwords (crypto-random, ~27 chars) always clear this.
+  const MIN_ADMIN_PASSWORD_LENGTH = 12;
+  if (
+    typeof body.password === 'string' &&
+    body.password.length > 0 &&
+    body.password.length < MIN_ADMIN_PASSWORD_LENGTH
+  ) {
+    return res.status(400).json(
+      createResponse({
+        success: false,
+        error: {
+          code: 'BAD_REQUEST',
+          message: `Password must be at least ${MIN_ADMIN_PASSWORD_LENGTH} characters, or left blank to auto-generate one`,
+        },
+      })
+    );
+  }
+  const password =
+    typeof body.password === 'string' && body.password.length > 0
+      ? body.password
+      : generatePassword();
+  const parentConfig =
+    body.parentConfig &&
+    typeof body.parentConfig.uuid === 'string' &&
+    typeof body.parentConfig.password === 'string'
+      ? {
+          uuid: body.parentConfig.uuid,
+          password: body.parentConfig.password,
+        }
+      : undefined;
+
+  const { uuid, encryptedPassword } = await UserRepository.createUser(
+    { parentConfig } as UserData,
+    password
+  );
+  if (label) {
+    await AdminUsersRepository.setLabel(uuid, label);
+  }
+  logger.warn({ uuid, username, labeled: !!label }, 'user created by admin');
+  res.status(201).json(
+    createResponse({
+      success: true,
+      data: { uuid, password, encryptedPassword },
+    })
+  );
+});
+
+router.patch('/users/:uuid/label', async (req, res) => {
+  const body = (req.body ?? {}) as { label?: unknown };
+  const label =
+    typeof body.label === 'string' || body.label === null
+      ? body.label
+      : undefined;
+  if (label === undefined) {
+    return res.status(400).json(
+      createResponse({
+        success: false,
+        error: { code: 'BAD_REQUEST', message: 'label must be a string or null' },
+      })
+    );
+  }
+  const ok = await AdminUsersRepository.setLabel(req.params.uuid, label);
+  res.status(ok ? 200 : 404).json(
+    ok
+      ? createResponse({ success: true, data: { label } })
+      : createResponse({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'User not found' },
+        })
+  );
 });
 
 // =============================================================================
