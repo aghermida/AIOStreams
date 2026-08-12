@@ -18,6 +18,7 @@ import { streamSessions } from './0017_stream_sessions.js';
 import { taskState } from './0018_task_state.js';
 import { configProfiles } from './0019_config_profiles.js';
 import { userLabel } from './0020_user_label.js';
+import { configEscrow } from './0021_config_escrow.js';
 import type { Migration } from './types.js';
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -41,6 +42,7 @@ export const MIGRATIONS: readonly Migration[] = [
   taskState,
   configProfiles,
   userLabel,
+  configEscrow,
 ];
 
 export type { Migration } from './types.js';

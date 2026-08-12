@@ -167,16 +167,15 @@ export function UsersPage() {
     onError: (e: any) => toast.error(e?.message ?? 'Failed to create user'),
   });
 
-  // Reset password: still requires the CURRENT password (config is
-  // encrypted with a key derived from it — there is no admin bypass), so
-  // this only helps when the admin still has the password they generated.
+  // Admin-initiated password reset: no cooperation from the user and no
+  // current password needed. Relies on the config's server-recoverable
+  // escrow copy, which only exists once a user's config has been created,
+  // saved, or had its password changed after this feature shipped.
   const [resetPasswordOpen, setResetPasswordOpen] = React.useState(false);
-  const [currentPasswordInput, setCurrentPasswordInput] = React.useState('');
   const [newPasswordInput, setNewPasswordInput] = React.useState('');
 
   const resetResetPasswordForm = () => {
     setResetPasswordOpen(false);
-    setCurrentPasswordInput('');
     setNewPasswordInput('');
   };
 
@@ -186,7 +185,6 @@ export function UsersPage() {
         `POST /dashboard/users/${uuid}/reset-password`,
         {
           body: {
-            currentPassword: currentPasswordInput,
             newPassword: newPasswordInput || undefined,
           },
         }
@@ -661,14 +659,7 @@ export function UsersPage() {
                   <Alert
                     intent="alert"
                     isClosable={false}
-                    description="You need this user's current password — it's required to re-encrypt their config. If you don't have it, the only option is deleting and recreating the user."
-                  />
-                  <PasswordInput
-                    label="Current password"
-                    value={currentPasswordInput}
-                    onValueChange={setCurrentPasswordInput}
-                    placeholder="This user's current password"
-                    autoComplete="off"
+                    description="This immediately replaces the user's password — they'll need the new one to access their profile again. Only works if this account was created or saved after password recovery was added; older, never-resaved accounts can't be recovered."
                   />
                   <PasswordInput
                     label="New password"
@@ -689,7 +680,6 @@ export function UsersPage() {
                       size="sm"
                       intent="white"
                       loading={resetPassword.isPending}
-                      disabled={!currentPasswordInput}
                       onClick={() => resetPassword.mutate(detail.uuid)}
                     >
                       Reset Password
