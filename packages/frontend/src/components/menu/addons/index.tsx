@@ -365,7 +365,7 @@ function Content() {
                     content: (
                       <div className="space-y-6">
                         <MyAddons onEdit={handleEditFromMyAddons} />
-                        {userData.presets.length > 0 && mode === 'pro' && (
+                        {(userData.presets ?? []).length > 0 && mode === 'pro' && (
                           <AddonFetchingBehaviorCard />
                         )}
                       </div>
@@ -377,7 +377,7 @@ function Content() {
                     icon: <MdOutlineDataset className="w-4 h-4" />,
                     content: (
                       <div className="space-y-6">
-                        {userData.presets.length === 0 ? (
+                        {(userData.presets ?? []).length === 0 ? (
                           <Card className="p-8 text-center">
                             <p className="text-[--muted]">
                               Install some addons first to configure catalogs.
