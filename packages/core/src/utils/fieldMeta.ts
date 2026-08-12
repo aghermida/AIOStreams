@@ -276,7 +276,7 @@ export type CloneSection = (typeof CLONE_SECTIONS)[number];
 export function userDataKeysForMenus(
   menus: readonly string[]
 ): (keyof UserData)[] {
-  return (Object.keys(FIELD_META) as (keyof UserData)[]).filter((key) =>
-    menus.includes(FIELD_META[key].menu)
+  return (Object.keys(FIELD_META) as (keyof typeof FIELD_META)[]).filter(
+    (key) => menus.includes(FIELD_META[key].menu)
   );
 }
