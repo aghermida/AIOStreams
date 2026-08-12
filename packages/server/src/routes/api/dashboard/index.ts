@@ -48,6 +48,15 @@ router.use('/blocklist', blocklistDashboard);
 // Unified stream accounting: live sessions, history, bandwidth, bans.
 router.use('/streams', streamsDashboard);
 
+// presets/formatter/sortCriteria have no schema defaults, so any config
+// missing them - whether blank or partially cloned - fails validation.
+const REQUIRED_USER_DATA_KEYS = ['presets', 'formatter', 'sortCriteria'] as const;
+const MINIMAL_VALID_USER_DATA: Pick<UserData, (typeof REQUIRED_USER_DATA_KEYS)[number]> = {
+  presets: [],
+  formatter: { id: 'gdrive' },
+  sortCriteria: { global: [{ key: 'cached', direction: 'desc' }] },
+};
+
 function csv(v: unknown): string[] | undefined {
   if (typeof v !== 'string' || !v.trim()) return undefined;
   return v
@@ -859,13 +868,12 @@ router.post('/users', async (req, res) => {
       // sections the admin picked (e.g. skip "Services" to leave API keys
       // blank for the new user).
       newUserConfig = {} as UserData;
-      // sortCriteria/formatter are required by the schema regardless of
-      // which sections were picked - always carry them over so the config
-      // stays valid even when "Sorting"/"Formatting" are unchecked.
+      // sortCriteria/formatter/presets are required by the schema regardless
+      // of which sections were picked - always carry them over so the config
+      // stays valid even when "Sorting"/"Formatting"/"Addons" are unchecked.
       const keysToCopy = new Set<keyof UserData>([
         ...userDataKeysForMenus(requestedSections),
-        'sortCriteria',
-        'formatter',
+        ...REQUIRED_USER_DATA_KEYS,
       ]);
       for (const key of keysToCopy) {
         if (key in sourceConfig) {
@@ -881,7 +889,10 @@ router.post('/users', async (req, res) => {
     delete newUserConfig.encryptedPassword;
     delete newUserConfig.parentConfig;
   } else {
-    newUserConfig = {} as UserData;
+    // No source to clone from: seed the bare minimum the schema requires
+    // (presets/formatter/sortCriteria have no defaults) so an otherwise
+    // empty config still validates. Everything else starts unset.
+    newUserConfig = { ...MINIMAL_VALID_USER_DATA } as UserData;
   }
   injectAccessKey(req, newUserConfig);
   const { uuid, encryptedPassword } = await UserRepository.createUser(
