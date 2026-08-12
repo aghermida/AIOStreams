@@ -107,10 +107,19 @@ const stremioConfigureRoute = createRoute({
   component: ConfigureRoute,
 });
 
+// This route carries its own uuid+password in the URL, which the backend
+// (userDataMiddleware / PUT /api/v1/user) verifies independently of any site
+// session — so, unlike the public /stremio/configure route, it must NOT
+// bounce to /login just because there's no admin session. We still prefetch
+// status so the page renders immediately.
+async function configureAuthBeforeLoad() {
+  await queryClient.ensureQueryData(statusQuery).catch(() => null);
+}
+
 const stremioConfigureAuthRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/stremio/$uuid/$encryptedPassword/configure',
-  beforeLoad: configureBeforeLoad,
+  beforeLoad: configureAuthBeforeLoad,
   component: ConfigureRoute,
 });
 
