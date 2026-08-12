@@ -458,11 +458,19 @@ export async function getFormattedStream(stream: ParsedStream, context?: any) {
 }
 
 /**
- * Get catalogs for user data
+ * Get catalogs for user data. Pass `credentials` when the caller has no site
+ * session (e.g. an admin-provisioned user editing their own profile) so the
+ * server can authorize the config-write gate via uuid+password instead.
  */
-export async function fetchCatalogs(userData: UserData) {
+export async function fetchCatalogs(
+  userData: UserData,
+  credentials?: { uuid: string; password: string }
+) {
   return api<CatalogInfo[]>('POST /catalogs', {
     body: { userData },
+    headers: credentials
+      ? { Authorization: basicAuthHeader(credentials.uuid, credentials.password) }
+      : undefined,
   });
 }
 
