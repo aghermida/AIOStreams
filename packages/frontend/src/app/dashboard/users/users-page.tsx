@@ -168,6 +168,9 @@ export function UsersPage() {
     ? `${baseUrl}/stremio/${createdCredentials.uuid}/${createdCredentials.encryptedPassword}/manifest.json`
     : '';
   const stremioInstallUrl = manifestUrl.replace(/^https?:\/\//, 'stremio://');
+  const configureUrl = createdCredentials
+    ? `${baseUrl}/stremio/${createdCredentials.uuid}/${createdCredentials.encryptedPassword}/configure`
+    : '';
 
   const copyField = (value: string, label: string) =>
     void copyToClipboard(value, {
@@ -707,6 +710,9 @@ export function UsersPage() {
             </div>
             <div>
               <div className="text-xs text-[--muted]">Manifest URL</div>
+              <div className="text-xs text-[--muted] mb-1">
+                Give this to the recipient to add the addon in Stremio.
+              </div>
               <div className="flex items-center gap-2">
                 <span className="font-mono break-all text-xs">
                   {manifestUrl}
@@ -717,12 +723,28 @@ export function UsersPage() {
                 />
               </div>
             </div>
+            <div>
+              <div className="text-xs text-[--muted]">Configure URL</div>
+              <div className="text-xs text-[--muted] mb-1">
+                Give this to the recipient so they can view/edit their own
+                settings later — no admin login required.
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono break-all text-xs">
+                  {configureUrl}
+                </span>
+                <BiCopy
+                  className="min-h-4 min-w-4 cursor-pointer shrink-0"
+                  onClick={() => copyField(configureUrl, 'Configure URL')}
+                />
+              </div>
+            </div>
             <Button
               intent="white"
               size="sm"
               onClick={() => (window.location.href = stremioInstallUrl)}
             >
-              Install in Stremio
+              Install in Stremio (test)
             </Button>
           </div>
         )}
