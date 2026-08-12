@@ -763,12 +763,13 @@ export function UsersPage() {
             placeholder="Leave blank to auto-generate"
             autoComplete="new-password"
           />
-          <div className="flex items-center gap-2">
-            <Checkbox value={cloneFrom} onValueChange={(v) => setCloneFrom(v === true)} />
-            <span>Clone settings from an existing profile</span>
-          </div>
+          <Checkbox
+            label="Clone settings from an existing profile"
+            value={cloneFrom}
+            onValueChange={(v) => setCloneFrom(v === true)}
+          />
           {cloneFrom && (
-            <div className="space-y-3 pl-6">
+            <div className="space-y-3 pl-1">
               <TextInput
                 label="Source UUID"
                 value={sourceUuid}
@@ -782,9 +783,11 @@ export function UsersPage() {
                 placeholder="That profile's password"
                 autoComplete="off"
               />
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[--muted]">What to copy</span>
+                  <span className="text-xs font-medium uppercase tracking-wide text-[--muted]">
+                    What to copy
+                  </span>
                   <Button
                     type="button"
                     intent="white-link"
@@ -802,17 +805,19 @@ export function UsersPage() {
                       : 'Select all'}
                   </Button>
                 </div>
-                {CLONE_SECTIONS.map((section) => (
-                  <div key={section} className="flex items-center gap-2">
-                    <Checkbox
-                      value={cloneSections.has(section)}
-                      onValueChange={(v) =>
-                        toggleCloneSection(section, v === true)
-                      }
-                    />
-                    <span>{CLONE_SECTION_LABELS[section]}</span>
-                  </div>
-                ))}
+                <div className="rounded-[--radius] border border-[--border] divide-y divide-[--border]">
+                  {CLONE_SECTIONS.map((section) => (
+                    <div key={section} className="px-3 py-2 hover:bg-white/5">
+                      <Checkbox
+                        label={CLONE_SECTION_LABELS[section]}
+                        value={cloneSections.has(section)}
+                        onValueChange={(v) =>
+                          toggleCloneSection(section, v === true)
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
