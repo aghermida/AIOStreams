@@ -9,7 +9,10 @@ import {
   AdminUsersRepository,
   UserRepository,
   generatePassword,
+  CLONE_SECTIONS,
+  userDataKeysForMenus,
   type UserData,
+  type CloneSection,
   TaskManager,
   Cache,
   describeDiskCaches,
@@ -789,6 +792,7 @@ router.post('/users', async (req, res) => {
     label?: unknown;
     password?: unknown;
     parentConfig?: { uuid?: unknown; password?: unknown };
+    cloneSections?: unknown;
   };
   const username =
     (req as { user?: { username?: string } }).user?.username ?? 'admin';
@@ -845,7 +849,34 @@ router.post('/users', async (req, res) => {
     }
     // Full independent copy, not a live link: drop identity/link fields so
     // this becomes the new user's own config from this point forward.
-    newUserConfig = { ...sourceConfig };
+    const requestedSections = Array.isArray(body.cloneSections)
+      ? body.cloneSections.filter((s): s is CloneSection =>
+          (CLONE_SECTIONS as readonly string[]).includes(s as string)
+        )
+      : undefined;
+    if (requestedSections && requestedSections.length > 0) {
+      // Partial copy: only bring over the fields that belong to the
+      // sections the admin picked (e.g. skip "Services" to leave API keys
+      // blank for the new user).
+      newUserConfig = {} as UserData;
+      // sortCriteria/formatter are required by the schema regardless of
+      // which sections were picked - always carry them over so the config
+      // stays valid even when "Sorting"/"Formatting" are unchecked.
+      const keysToCopy = new Set<keyof UserData>([
+        ...userDataKeysForMenus(requestedSections),
+        'sortCriteria',
+        'formatter',
+      ]);
+      for (const key of keysToCopy) {
+        if (key in sourceConfig) {
+          (newUserConfig as Record<string, unknown>)[key] = (
+            sourceConfig as Record<string, unknown>
+          )[key];
+        }
+      }
+    } else {
+      newUserConfig = { ...sourceConfig };
+    }
     delete newUserConfig.uuid;
     delete newUserConfig.encryptedPassword;
     delete newUserConfig.parentConfig;
