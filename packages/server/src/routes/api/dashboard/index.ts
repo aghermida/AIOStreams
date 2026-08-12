@@ -23,7 +23,7 @@ import {
   type LogQuery,
 } from '@aiostreams/core';
 import { ZodError } from 'zod';
-import { requireAdmin } from '../../../middlewares/auth.js';
+import { requireAdmin, injectAccessKey } from '../../../middlewares/auth.js';
 import { createResponse } from '../../../utils/responses.js';
 import { getSystemMetrics } from '../../../utils/system-metrics.js';
 import usenetDashboard from './usenet.js';
@@ -822,8 +822,10 @@ router.post('/users', async (req, res) => {
         }
       : undefined;
 
+  const newUserConfig = { parentConfig } as UserData;
+  injectAccessKey(req, newUserConfig);
   const { uuid, encryptedPassword } = await UserRepository.createUser(
-    { parentConfig } as UserData,
+    newUserConfig,
     password
   );
   if (label) {
