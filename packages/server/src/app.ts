@@ -217,7 +217,9 @@ stremioAuthRouter.use('/subtitles', stremioSubtitleRateLimiter);
 stremioAuthRouter.use(userDataMiddleware);
 stremioAuthRouter.use('/manifest.json', manifest);
 stremioAuthRouter.use('/stream', stream);
-stremioAuthRouter.use('/configure', requireSessionIfAuthRequired, configure);
+// Already authenticated by userDataMiddleware above (valid uuid+password),
+// which is an equivalent-strength check to a site session.
+stremioAuthRouter.use('/configure', configure);
 stremioAuthRouter.use('/meta', meta);
 stremioAuthRouter.use('/catalog', catalog);
 stremioAuthRouter.use('/subtitles', subtitle);

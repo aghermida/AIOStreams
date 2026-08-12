@@ -6,9 +6,13 @@
 import { getDb } from '../db.js';
 import { sql, raw, join } from '../sql.js';
 import { hmac } from '../../analytics/index.js';
+import { constants } from '../../utils/index.js';
+
+const APIError = constants.APIError;
 
 export interface AdminUserListItem {
   uuid: string;
+  label: string | null;
   createdAt: string;
   updatedAt: string;
   accessedAt: string;
@@ -52,11 +56,12 @@ export const AdminUsersRepository = {
     );
     const rows = await db.query<{
       uuid: string;
+      label: string | null;
       created_at: string | Date;
       updated_at: string | Date;
       accessed_at: string | Date;
     }>(
-      sql`SELECT uuid, created_at, updated_at, accessed_at FROM users
+      sql`SELECT uuid, label, created_at, updated_at, accessed_at FROM users
           ${where}
           ORDER BY ${raw(sortCol)} ${raw(dir)}
           LIMIT ${limit} OFFSET ${offset}`
@@ -71,6 +76,7 @@ export const AdminUsersRepository = {
       );
       items.push({
         uuid: r.uuid,
+        label: r.label,
         createdAt: toUtcString(r.created_at),
         updatedAt: toUtcString(r.updated_at),
         accessedAt: toUtcString(r.accessed_at),
@@ -84,11 +90,12 @@ export const AdminUsersRepository = {
     const db = getDb();
     const r = await db.maybeOne<{
       uuid: string;
+      label: string | null;
       created_at: string;
       updated_at: string;
       accessed_at: string;
     }>(
-      sql`SELECT uuid, created_at, updated_at, accessed_at FROM users WHERE uuid = ${uuid}`
+      sql`SELECT uuid, label, created_at, updated_at, accessed_at FROM users WHERE uuid = ${uuid}`
     );
     if (!r) return null;
     const h = hmac(uuid);
@@ -104,6 +111,7 @@ export const AdminUsersRepository = {
     );
     return {
       uuid: r.uuid,
+      label: r.label,
       createdAt: toUtcString(r.created_at),
       updatedAt: toUtcString(r.updated_at),
       accessedAt: toUtcString(r.accessed_at),
@@ -113,6 +121,26 @@ export const AdminUsersRepository = {
         count: Number(e.c),
       })),
     };
+  },
+
+  async setLabel(uuid: string, label: string | null): Promise<boolean> {
+    const db = getDb();
+    let normalized: string | null = null;
+    if (label !== null && label !== undefined) {
+      const trimmed = label.trim();
+      if (trimmed.length < 1 || trimmed.length > 64) {
+        throw new APIError(
+          constants.ErrorCode.BAD_REQUEST,
+          undefined,
+          'label must be between 1 and 64 characters'
+        );
+      }
+      normalized = trimmed;
+    }
+    const res = await db.exec(
+      sql`UPDATE users SET label = ${normalized} WHERE uuid = ${uuid}`
+    );
+    return (res.rowCount ?? 0) > 0;
   },
 
   async remove(uuid: string): Promise<boolean> {

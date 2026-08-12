@@ -17,6 +17,7 @@ import { usenetIndexerMetrics } from './0016_usenet_indexer_metrics.js';
 import { streamSessions } from './0017_stream_sessions.js';
 import { taskState } from './0018_task_state.js';
 import { configProfiles } from './0019_config_profiles.js';
+import { userLabel } from './0020_user_label.js';
 import type { Migration } from './types.js';
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -39,6 +40,7 @@ export const MIGRATIONS: readonly Migration[] = [
   streamSessions,
   taskState,
   configProfiles,
+  userLabel,
 ];
 
 export type { Migration } from './types.js';

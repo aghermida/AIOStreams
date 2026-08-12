@@ -1,27 +1,40 @@
 import React from 'react';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BiTrash, BiSearch, BiInfoCircle } from 'react-icons/bi';
+import {
+  BiTrash,
+  BiSearch,
+  BiInfoCircle,
+  BiPlus,
+  BiPencil,
+  BiCheck,
+  BiX,
+  BiCopy,
+} from 'react-icons/bi';
 import { PageWrapper } from '@/components/shared/page-wrapper';
 import { Card } from '@/components/ui/card';
 import { Button, IconButton } from '@/components/ui/button';
 import { TextInput } from '@/components/ui/text-input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { NumberInput } from '@/components/ui/number-input';
 import { Select } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Modal } from '@/components/ui/modal';
+import { Alert } from '@/components/ui/alert';
 import {
   ConfirmationDialog,
   useConfirmationDialog,
 } from '@/components/shared/confirmation-dialog';
 import { DashboardQueryBoundary } from '@/components/shared/dashboard-query-boundary';
 import { useDebounce } from '@/hooks/debounce';
+import { useStatus } from '@/context/status';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { copyToClipboard } from '@/utils/clipboard';
 
 interface UserItem {
   uuid: string;
+  label: string | null;
   createdAt: string;
   updatedAt: string;
   accessedAt: string;
@@ -40,8 +53,16 @@ interface UserDetail extends UserItem {
 
 const PAGE_SIZES = ['10', '25', '50', '100'];
 
+interface CreatedCredentials {
+  uuid: string;
+  password: string;
+  encryptedPassword: string;
+}
+
 export function UsersPage() {
   const qc = useQueryClient();
+  const { status } = useStatus();
+  const baseUrl = status?.settings?.baseUrl || window.location.origin;
   const [page, setPage] = React.useState(1);
   const [limit, setLimit] = React.useState(25);
   const [q, setQ] = React.useState('');
@@ -91,6 +112,68 @@ export function UsersPage() {
     },
     onError: (e: any) => toast.error(e?.message ?? 'Batch delete failed'),
   });
+
+  // Inline nickname editing.
+  const [editingUuid, setEditingUuid] = React.useState<string | null>(null);
+  const [editLabelValue, setEditLabelValue] = React.useState('');
+  const setLabel = useMutation({
+    mutationFn: ({ uuid, label }: { uuid: string; label: string | null }) =>
+      api(`PATCH /dashboard/users/${uuid}/label`, { body: { label } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dashboard', 'users'] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? 'Failed to update nickname'),
+    onSettled: () => setEditingUuid(null),
+  });
+
+  // Create User: admin provisions a friend's profile without a shared login.
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const [newLabel, setNewLabel] = React.useState('');
+  const [newPassword, setNewPassword] = React.useState('');
+  const [cloneFrom, setCloneFrom] = React.useState(false);
+  const [sourceUuid, setSourceUuid] = React.useState('');
+  const [sourcePassword, setSourcePassword] = React.useState('');
+  const [createdCredentials, setCreatedCredentials] =
+    React.useState<CreatedCredentials | null>(null);
+
+  const resetCreateForm = () => {
+    setNewLabel('');
+    setNewPassword('');
+    setCloneFrom(false);
+    setSourceUuid('');
+    setSourcePassword('');
+  };
+
+  const createUser = useMutation({
+    mutationFn: () =>
+      api<CreatedCredentials>('POST /dashboard/users', {
+        body: {
+          label: newLabel.trim() || undefined,
+          password: newPassword || undefined,
+          parentConfig: cloneFrom
+            ? { uuid: sourceUuid.trim(), password: sourcePassword }
+            : undefined,
+        },
+      }),
+    onSuccess: (data) => {
+      setCreateOpen(false);
+      resetCreateForm();
+      setCreatedCredentials(data);
+      qc.invalidateQueries({ queryKey: ['dashboard', 'users'] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? 'Failed to create user'),
+  });
+
+  const manifestUrl = createdCredentials
+    ? `${baseUrl}/stremio/${createdCredentials.uuid}/${createdCredentials.encryptedPassword}/manifest.json`
+    : '';
+  const stremioInstallUrl = manifestUrl.replace(/^https?:\/\//, 'stremio://');
+
+  const copyField = (value: string, label: string) =>
+    void copyToClipboard(value, {
+      onSuccess: () => toast.success(`${label} copied`),
+      onError: () => toast.error('Copy failed'),
+    });
 
   const [pendingDelete, setPendingDelete] = React.useState<string | null>(null);
   const confirm = useConfirmationDialog({
@@ -185,6 +268,17 @@ export function UsersPage() {
             className="w-24"
           />
         </div>
+        <Button
+          size="sm"
+          intent="white"
+          leftIcon={<BiPlus />}
+          onClick={() => {
+            resetCreateForm();
+            setCreateOpen(true);
+          }}
+        >
+          Create User
+        </Button>
       </div>
 
       {selected.size > 0 && (
@@ -241,6 +335,7 @@ export function UsersPage() {
                         aria-label="Select all on page"
                       />
                     </th>
+                    <th className="p-3">Nickname</th>
                     <th className="p-3">UUID</th>
                     {(
                       [
@@ -273,6 +368,62 @@ export function UsersPage() {
                           onValueChange={(v) => toggleRow(u.uuid, v)}
                           aria-label={`Select ${u.uuid}`}
                         />
+                      </td>
+                      <td className="p-3">
+                        {editingUuid === u.uuid ? (
+                          <div className="flex items-center gap-1">
+                            <TextInput
+                              value={editLabelValue}
+                              onValueChange={setEditLabelValue}
+                              placeholder="Nickname"
+                              autoFocus
+                              className="w-32"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter')
+                                  setLabel.mutate({
+                                    uuid: u.uuid,
+                                    label: editLabelValue.trim() || null,
+                                  });
+                                if (e.key === 'Escape') setEditingUuid(null);
+                              }}
+                            />
+                            <IconButton
+                              size="sm"
+                              intent="gray-subtle"
+                              icon={<BiCheck />}
+                              aria-label="Save nickname"
+                              loading={setLabel.isPending}
+                              onClick={() =>
+                                setLabel.mutate({
+                                  uuid: u.uuid,
+                                  label: editLabelValue.trim() || null,
+                                })
+                              }
+                            />
+                            <IconButton
+                              size="sm"
+                              intent="gray-subtle"
+                              icon={<BiX />}
+                              aria-label="Cancel"
+                              onClick={() => setEditingUuid(null)}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 group">
+                            <span>{u.label || '—'}</span>
+                            <IconButton
+                              size="sm"
+                              intent="gray-subtle"
+                              icon={<BiPencil />}
+                              aria-label="Edit nickname"
+                              className="opacity-0 group-hover:opacity-100"
+                              onClick={() => {
+                                setEditingUuid(u.uuid);
+                                setEditLabelValue(u.label ?? '');
+                              }}
+                            />
+                          </div>
+                        )}
                       </td>
                       <td
                         className="p-3 font-mono text-xs cursor-pointer"
@@ -317,7 +468,7 @@ export function UsersPage() {
                   {d && pageItems.length === 0 && (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="p-8 text-center text-[--muted]"
                       >
                         No users found.
@@ -402,6 +553,10 @@ export function UsersPage() {
         {detail && (
           <div className="space-y-3 text-sm">
             <div>
+              <div className="text-xs text-[--muted]">Nickname</div>
+              <div>{detail.label || '—'}</div>
+            </div>
+            <div>
               <div className="text-xs text-[--muted]">UUID</div>
               <div className="font-mono break-all">{detail.uuid}</div>
             </div>
@@ -442,6 +597,133 @@ export function UsersPage() {
                 <span className="text-[--muted]">None</span>
               )}
             </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={createOpen}
+        onOpenChange={(o) => {
+          setCreateOpen(o);
+          if (!o) resetCreateForm();
+        }}
+        title="Create User"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              intent="gray-outline"
+              size="sm"
+              onClick={() => setCreateOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              intent="white"
+              size="sm"
+              loading={createUser.isPending}
+              disabled={cloneFrom && (!sourceUuid.trim() || !sourcePassword)}
+              onClick={() => createUser.mutate()}
+            >
+              Create
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-sm">
+          <TextInput
+            label="Nickname"
+            value={newLabel}
+            onValueChange={setNewLabel}
+            placeholder="e.g. Alice"
+          />
+          <PasswordInput
+            label="Password"
+            value={newPassword}
+            onValueChange={setNewPassword}
+            placeholder="Leave blank to auto-generate"
+            autoComplete="new-password"
+          />
+          <div className="flex items-center gap-2">
+            <Checkbox value={cloneFrom} onValueChange={(v) => setCloneFrom(v === true)} />
+            <span>Clone settings from an existing profile</span>
+          </div>
+          {cloneFrom && (
+            <div className="space-y-3 pl-6">
+              <TextInput
+                label="Source UUID"
+                value={sourceUuid}
+                onValueChange={setSourceUuid}
+                placeholder="uuid of the profile to copy"
+              />
+              <PasswordInput
+                label="Source password"
+                value={sourcePassword}
+                onValueChange={setSourcePassword}
+                placeholder="That profile's password"
+                autoComplete="off"
+              />
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!createdCredentials}
+        onOpenChange={(o) => !o && setCreatedCredentials(null)}
+        title="User created"
+      >
+        {createdCredentials && (
+          <div className="space-y-4 text-sm">
+            <Alert
+              intent="alert"
+              isClosable={false}
+              description="Copy this now — the password can't be shown again."
+            />
+            <div>
+              <div className="text-xs text-[--muted]">UUID</div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono break-all">
+                  {createdCredentials.uuid}
+                </span>
+                <BiCopy
+                  className="min-h-4 min-w-4 cursor-pointer shrink-0"
+                  onClick={() => copyField(createdCredentials.uuid, 'UUID')}
+                />
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-[--muted]">Password</div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono break-all">
+                  {createdCredentials.password}
+                </span>
+                <BiCopy
+                  className="min-h-4 min-w-4 cursor-pointer shrink-0"
+                  onClick={() =>
+                    copyField(createdCredentials.password, 'Password')
+                  }
+                />
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-[--muted]">Manifest URL</div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono break-all text-xs">
+                  {manifestUrl}
+                </span>
+                <BiCopy
+                  className="min-h-4 min-w-4 cursor-pointer shrink-0"
+                  onClick={() => copyField(manifestUrl, 'Manifest URL')}
+                />
+              </div>
+            </div>
+            <Button
+              intent="white"
+              size="sm"
+              onClick={() => (window.location.href = stremioInstallUrl)}
+            >
+              Install in Stremio
+            </Button>
           </div>
         )}
       </Modal>
