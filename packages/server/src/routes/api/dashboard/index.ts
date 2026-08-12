@@ -894,6 +894,71 @@ router.patch('/users/:uuid/label', async (req, res) => {
   );
 });
 
+/**
+ * Admin-assisted password reset. This still requires the user's CURRENT
+ * password — their config is encrypted with a key derived from it, so there
+ * is no server-side bypass. This just saves the admin a trip to the API for
+ * the common case where they still have the password they generated (e.g.
+ * from the Create User modal) and want to rotate it. If the current
+ * password is truly lost, the config cannot be recovered; the only option
+ * at that point is deleting and recreating the user.
+ */
+router.post('/users/:uuid/reset-password', async (req, res) => {
+  const body = (req.body ?? {}) as {
+    currentPassword?: unknown;
+    newPassword?: unknown;
+  };
+  if (typeof body.currentPassword !== 'string' || !body.currentPassword) {
+    return res.status(400).json(
+      createResponse({
+        success: false,
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'currentPassword is required',
+        },
+      })
+    );
+  }
+  const MIN_ADMIN_PASSWORD_LENGTH = 12;
+  if (
+    typeof body.newPassword === 'string' &&
+    body.newPassword.length > 0 &&
+    body.newPassword.length < MIN_ADMIN_PASSWORD_LENGTH
+  ) {
+    return res.status(400).json(
+      createResponse({
+        success: false,
+        error: {
+          code: 'BAD_REQUEST',
+          message: `New password must be at least ${MIN_ADMIN_PASSWORD_LENGTH} characters, or left blank to auto-generate one`,
+        },
+      })
+    );
+  }
+  const newPassword =
+    typeof body.newPassword === 'string' && body.newPassword.length > 0
+      ? body.newPassword
+      : generatePassword();
+
+  const { encryptedPassword } = await UserRepository.changePassword(
+    req.params.uuid,
+    body.currentPassword,
+    newPassword
+  );
+  const username =
+    (req as { user?: { username?: string } }).user?.username ?? 'admin';
+  logger.warn(
+    { uuid: req.params.uuid, username },
+    'password reset by admin'
+  );
+  res.status(200).json(
+    createResponse({
+      success: true,
+      data: { password: newPassword, encryptedPassword },
+    })
+  );
+});
+
 // =============================================================================
 // Tasks — registry + manual trigger
 // =============================================================================

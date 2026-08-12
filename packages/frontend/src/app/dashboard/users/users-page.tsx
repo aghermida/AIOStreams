@@ -135,6 +135,8 @@ export function UsersPage() {
   const [sourcePassword, setSourcePassword] = React.useState('');
   const [createdCredentials, setCreatedCredentials] =
     React.useState<CreatedCredentials | null>(null);
+  const [credentialsModalTitle, setCredentialsModalTitle] =
+    React.useState('User created');
 
   const resetCreateForm = () => {
     setNewLabel('');
@@ -158,10 +160,49 @@ export function UsersPage() {
     onSuccess: (data) => {
       setCreateOpen(false);
       resetCreateForm();
+      setCredentialsModalTitle('User created');
       setCreatedCredentials(data);
       qc.invalidateQueries({ queryKey: ['dashboard', 'users'] });
     },
     onError: (e: any) => toast.error(e?.message ?? 'Failed to create user'),
+  });
+
+  // Reset password: still requires the CURRENT password (config is
+  // encrypted with a key derived from it — there is no admin bypass), so
+  // this only helps when the admin still has the password they generated.
+  const [resetPasswordOpen, setResetPasswordOpen] = React.useState(false);
+  const [currentPasswordInput, setCurrentPasswordInput] = React.useState('');
+  const [newPasswordInput, setNewPasswordInput] = React.useState('');
+
+  const resetResetPasswordForm = () => {
+    setResetPasswordOpen(false);
+    setCurrentPasswordInput('');
+    setNewPasswordInput('');
+  };
+
+  const resetPassword = useMutation({
+    mutationFn: (uuid: string) =>
+      api<{ password: string; encryptedPassword: string }>(
+        `POST /dashboard/users/${uuid}/reset-password`,
+        {
+          body: {
+            currentPassword: currentPasswordInput,
+            newPassword: newPasswordInput || undefined,
+          },
+        }
+      ),
+    onSuccess: (data) => {
+      if (!detail) return;
+      setDetail(null);
+      resetResetPasswordForm();
+      setCredentialsModalTitle('Password reset');
+      setCreatedCredentials({
+        uuid: detail.uuid,
+        password: data.password,
+        encryptedPassword: data.encryptedPassword,
+      });
+    },
+    onError: (e: any) => toast.error(e?.message ?? 'Failed to reset password'),
   });
 
   const manifestUrl = createdCredentials
@@ -550,7 +591,12 @@ export function UsersPage() {
 
       <Modal
         open={!!detail}
-        onOpenChange={(o) => !o && setDetail(null)}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDetail(null);
+            resetResetPasswordForm();
+          }
+        }}
         title="User detail"
       >
         {detail && (
@@ -598,6 +644,58 @@ export function UsersPage() {
                 </ul>
               ) : (
                 <span className="text-[--muted]">None</span>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-[--border]">
+              {!resetPasswordOpen ? (
+                <Button
+                  size="sm"
+                  intent="gray-outline"
+                  onClick={() => setResetPasswordOpen(true)}
+                >
+                  Reset Password
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <Alert
+                    intent="alert"
+                    isClosable={false}
+                    description="You need this user's current password — it's required to re-encrypt their config. If you don't have it, the only option is deleting and recreating the user."
+                  />
+                  <PasswordInput
+                    label="Current password"
+                    value={currentPasswordInput}
+                    onValueChange={setCurrentPasswordInput}
+                    placeholder="This user's current password"
+                    autoComplete="off"
+                  />
+                  <PasswordInput
+                    label="New password"
+                    value={newPasswordInput}
+                    onValueChange={setNewPasswordInput}
+                    placeholder="Leave blank to auto-generate"
+                    autoComplete="off"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      intent="gray-outline"
+                      onClick={resetResetPasswordForm}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      intent="white"
+                      loading={resetPassword.isPending}
+                      disabled={!currentPasswordInput}
+                      onClick={() => resetPassword.mutate(detail.uuid)}
+                    >
+                      Reset Password
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -673,7 +771,7 @@ export function UsersPage() {
       <Modal
         open={!!createdCredentials}
         onOpenChange={(o) => !o && setCreatedCredentials(null)}
-        title="User created"
+        title={credentialsModalTitle}
       >
         {createdCredentials && (
           <div className="space-y-4 text-sm">
