@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { createResponse } from '../../utils/responses.js';
 import { catalogApiRateLimiter } from '../../middlewares/ratelimit.js';
 import { attachSession, injectAccessKey } from '../../middlewares/auth.js';
+import { parseBasicAuthHeader } from '../../utils/basic-auth.js';
 import {
   createLogger,
   UserData,
@@ -49,7 +50,23 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       configToValidate = merged;
     }
 
-    injectAccessKey(req, configToValidate);
+    // Session-independent path: a caller presenting valid uuid+password for
+    // this exact config (e.g. an admin-provisioned user editing their own
+    // profile with no site session) is owner-verified without needing
+    // req.user, mirroring the PUT /api/v1/user save gate.
+    let ownerVerified = false;
+    if (!req.user) {
+      try {
+        const creds = parseBasicAuthHeader(req, { allowEncrypted: false });
+        if (creds) {
+          await UserRepository.verifyUser(creds.uuid, creds.password);
+          ownerVerified = true;
+        }
+      } catch {
+        // No/invalid credentials - fall through, ownerVerified stays false.
+      }
+    }
+    injectAccessKey(req, configToValidate, ownerVerified);
 
     try {
       validatedUserData = await validateConfig(configToValidate, {
