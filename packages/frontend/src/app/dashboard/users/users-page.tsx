@@ -31,6 +31,21 @@ import { useStatus } from '@/context/status';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { copyToClipboard } from '@/utils/clipboard';
+import {
+  CLONE_SECTIONS,
+  type CloneSection,
+} from '../../../../../core/src/utils/fieldMeta';
+
+const CLONE_SECTION_LABELS: Record<CloneSection, string> = {
+  services: 'Services (debrid/usenet credentials, API keys)',
+  addons: 'Addons & catalogs',
+  filters: 'Filters',
+  sorting: 'Sorting',
+  formatter: 'Formatter',
+  proxy: 'Proxy',
+  miscellaneous: 'Miscellaneous settings',
+  about: 'Branding (addon name/logo/description)',
+};
 
 interface UserItem {
   uuid: string;
@@ -133,6 +148,9 @@ export function UsersPage() {
   const [cloneFrom, setCloneFrom] = React.useState(false);
   const [sourceUuid, setSourceUuid] = React.useState('');
   const [sourcePassword, setSourcePassword] = React.useState('');
+  const [cloneSections, setCloneSections] = React.useState<
+    Set<CloneSection>
+  >(new Set(CLONE_SECTIONS));
   const [createdCredentials, setCreatedCredentials] =
     React.useState<CreatedCredentials | null>(null);
   const [credentialsModalTitle, setCredentialsModalTitle] =
@@ -144,6 +162,16 @@ export function UsersPage() {
     setCloneFrom(false);
     setSourceUuid('');
     setSourcePassword('');
+    setCloneSections(new Set(CLONE_SECTIONS));
+  };
+
+  const toggleCloneSection = (section: CloneSection, checked: boolean) => {
+    setCloneSections((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(section);
+      else next.delete(section);
+      return next;
+    });
   };
 
   const createUser = useMutation({
@@ -155,6 +183,7 @@ export function UsersPage() {
           parentConfig: cloneFrom
             ? { uuid: sourceUuid.trim(), password: sourcePassword }
             : undefined,
+          cloneSections: cloneFrom ? [...cloneSections] : undefined,
         },
       }),
     onSuccess: (data) => {
@@ -753,6 +782,38 @@ export function UsersPage() {
                 placeholder="That profile's password"
                 autoComplete="off"
               />
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[--muted]">What to copy</span>
+                  <Button
+                    type="button"
+                    intent="white-link"
+                    size="xs"
+                    onClick={() =>
+                      setCloneSections(
+                        cloneSections.size === CLONE_SECTIONS.length
+                          ? new Set()
+                          : new Set(CLONE_SECTIONS)
+                      )
+                    }
+                  >
+                    {cloneSections.size === CLONE_SECTIONS.length
+                      ? 'Select none'
+                      : 'Select all'}
+                  </Button>
+                </div>
+                {CLONE_SECTIONS.map((section) => (
+                  <div key={section} className="flex items-center gap-2">
+                    <Checkbox
+                      value={cloneSections.has(section)}
+                      onValueChange={(v) =>
+                        toggleCloneSection(section, v === true)
+                      }
+                    />
+                    <span>{CLONE_SECTION_LABELS[section]}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
