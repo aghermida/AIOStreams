@@ -10,7 +10,7 @@ import type { Migration } from './types.js';
  * save.
  */
 export const configEscrow: Migration = {
-  id: 21,
+  id: 24,
   name: 'config_escrow',
   up: {
     sqlite: `

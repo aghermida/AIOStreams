@@ -28,7 +28,10 @@ import {
 import { ZodError } from 'zod';
 import { requireAdmin, injectAccessKey } from '../../../middlewares/auth.js';
 import { createResponse } from '../../../utils/responses.js';
-import { getSystemMetrics } from '../../../utils/system-metrics.js';
+import {
+  getSystemMetrics,
+  getMetricsHistory,
+} from '../../../utils/system-metrics.js';
 import usenetDashboard from './usenet.js';
 import blocklistDashboard from './blocklist.js';
 import streamsDashboard from './streams.js';
@@ -599,6 +602,7 @@ router.get('/system', async (_req, res) => {
       success: true,
       data: {
         ...(await getSystemMetrics()),
+        history: getMetricsHistory(),
         lifecycleEnabled: appConfig.bootstrap.systemLifecycleEnabled === true,
       },
     })
