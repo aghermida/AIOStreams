@@ -21,8 +21,29 @@ import { animeDatabase } from './0020_anime_database.js';
 import { analyticsIndexes } from './0021_analytics_indexes.js';
 import { animeBuildSources } from './0022_anime_build_sources.js';
 import { linkedAccounts } from './0023_linked_accounts.js';
-import { userLabel } from './0024_user_label.js';
-import { configEscrow } from './0025_config_escrow.js';
+
+// ---------------------------------------------------------------------------
+// Fork-only migrations (ids 9000+)
+//
+// This fork (aghermida/AIOStreams) nightly-merges upstream's main branch
+// (github.com/Viren070/AIOStreams) via `.github/workflows/docker.yml`. That
+// merge aborts and fails loudly on any conflict — it does not auto-resolve.
+// Upstream numbers its own migrations sequentially from 1 with no awareness
+// of this fork; two migrations sharing the same numeric id is a hard
+// collision (duplicate `_migrations` PRIMARY KEY / git merge conflict here).
+//
+// To make that class of collision structurally impossible, every fork-only
+// migration reserves the id range starting at 9000:
+//   - Next new fork-only migration: id 9002, filename 9002_<name>.ts.
+//   - Increment by 1 per fork-only migration after that.
+//   - NEVER reuse, lower, or renumber into upstream's range (currently low
+//     double digits, growing roughly one migration every few days).
+//   - Gaps between upstream's range and 9000 are fine — the runner only
+//     requires globally unique ids and correct array order, not
+//     contiguity (see runner.ts).
+// ---------------------------------------------------------------------------
+import { userLabel } from './9000_user_label.js';
+import { configEscrow } from './9001_config_escrow.js';
 import type { Migration } from './types.js';
 
 export const MIGRATIONS: readonly Migration[] = [
