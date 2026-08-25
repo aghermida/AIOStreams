@@ -20,8 +20,9 @@ import { configProfiles } from './0019_config_profiles.js';
 import { animeDatabase } from './0020_anime_database.js';
 import { analyticsIndexes } from './0021_analytics_indexes.js';
 import { animeBuildSources } from './0022_anime_build_sources.js';
-import { userLabel } from './0023_user_label.js';
-import { configEscrow } from './0024_config_escrow.js';
+import { linkedAccounts } from './0023_linked_accounts.js';
+import { userLabel } from './0024_user_label.js';
+import { configEscrow } from './0025_config_escrow.js';
 import type { Migration } from './types.js';
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -47,6 +48,7 @@ export const MIGRATIONS: readonly Migration[] = [
   animeDatabase,
   analyticsIndexes,
   animeBuildSources,
+  linkedAccounts,
   userLabel,
   configEscrow,
 ];

@@ -6,7 +6,7 @@ import type { Migration } from './types.js';
  * Additive, nullable - existing rows stay valid with a NULL label.
  */
 export const userLabel: Migration = {
-  id: 23,
+  id: 24,
   name: 'user_label',
   up: {
     sqlite: `
