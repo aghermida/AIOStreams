@@ -76,3 +76,15 @@ The frontend uses rsbuild (not Vite/webpack directly) — `pnpm -F frontend dev`
 - Cross-package imports use the workspace name: `from '@aiostreams/core'`.
 - Logger: `createLogger('<scope>')` from `@aiostreams/core` (Pino under the hood); do not `console.log`.
 - Errors that prevent startup should be thrown as `ConfigStartupError` — `server.ts` prints those without a stack trace.
+
+## Fork sync conventions (read before touching `.github/workflows/` or deleting/renaming any file)
+
+This repo is a personal fork of [`Viren070/AIOStreams`](https://github.com/Viren070/AIOStreams). `.github/workflows/docker.yml` merges `upstream/main` into `main` every night (cron), on every push, and on manual dispatch, then pushes the result and builds/publishes the Docker image. For this automation to keep working with **zero manual intervention**, the merge must apply cleanly every time — it only ever fails when a fork-only change touches something upstream is still actively evolving on its own.
+
+The sister repo `aiometadata` (same fork-of-upstream setup) hit exactly this: it had deleted two CI workflow files upstream kept modifying, so every nightly sync produced a `modify/delete` conflict and failed repeatedly (2026-08-19 to 2026-08-21, fixed in PR #12 there). Follow these rules here too, for any file:
+
+1. **Never delete, rename, or replace a file that still exists upstream** without registering it. If a file must genuinely diverge (this fork replaces upstream's version outright), add a `FORK_DELETED_UPSTREAM_FILES` array at the top of the "Sync fork with upstream" step in `docker.yml` (following `aiometadata`'s `docker.yml` as the reference implementation) listing its path with a one-line reason, and skip it explicitly during conflict resolution instead of just deleting it and hoping.
+2. **Prefer new, uniquely-named files/directories for fork-only functionality** (e.g. a new preset file under `packages/core/src/presets/`, a new builtin under `packages/core/src/builtins/`). Upstream will never create a file with that name, so there is no collision surface, ever — this is always safer than rule 1.
+3. **When a fork-only feature must live inside a file upstream also owns**, change it additively: new branches/cases, new optional config fields, new exports — don't delete or restructure the surrounding code upstream still maintains. Git's line-based merge only conflicts where both sides touch the *same* lines, so additive edits keep merging cleanly even as upstream keeps changing the file around them.
+4. Treat everything under `.github/workflows/` as upstream-owned by default — assume upstream will keep editing any workflow file it ships, and apply rule 1 there specifically.
+5. When merging a PR that contains a `Merge upstream/main into main` commit (or otherwise carries upstream's history), always use a real merge commit — **never squash**. Squashing breaks the shared history with upstream and causes the *next* nightly sync to fail for an unrelated reason (a fresh merge-base mismatch).
