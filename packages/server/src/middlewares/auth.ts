@@ -182,19 +182,11 @@ export function attachSession(
  * (`assertConfigAccessKey`). Callers without a session cannot obtain the
  * key and are rejected. No-op when the gate is disabled (key is null).
  *
- * `ownerVerified` lets a caller that has already proven ownership of the
- * target uuid by another equivalent-strength means (e.g. a verified
- * uuid+password pair) obtain the key without a site session.
- *
  * Requires `attachSession` to have run first so `req.user` is populated.
  */
-export function injectAccessKey(
-  req: { user?: unknown },
-  config: unknown,
-  ownerVerified = false
-): void {
+export function injectAccessKey(req: { user?: unknown }, config: unknown): void {
   const key = getConfigAccessKey();
-  if (key && (req.user || ownerVerified) && config && typeof config === 'object') {
+  if (key && req.user && config && typeof config === 'object') {
     (config as { accessKey?: string }).accessKey = key;
   }
 }

@@ -236,17 +236,7 @@ router.put('/', async (req, res, next) => {
 
   try {
     config.uuid = uuid;
-    let ownerVerified = false;
-    if (!req.user) {
-      try {
-        await UserRepository.verifyUser(uuid, password);
-        ownerVerified = true;
-      } catch {
-        // Wrong uuid/password - let updateUser's own check reject this below.
-        logger.warn({ uuid }, 'failed sessionless save attempt (bad credentials)');
-      }
-    }
-    injectAccessKey(req, config, ownerVerified);
+    injectAccessKey(req, config);
     const updatedUser = await UserRepository.updateUser(uuid, password, config);
     res.status(200).json(
       createResponse({
