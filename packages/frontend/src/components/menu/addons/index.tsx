@@ -42,16 +42,13 @@ export function AddonsMenu() {
 function Content() {
   const { status } = useStatus();
   const { mode } = useMode();
-  const { userData, setUserData, uuid, password } = useUserData();
+  const { userData, setUserData } = useUserData();
   const { isInherited, hasParent } = useParentInheritance();
   const [page, setPage] = useState<'installed' | 'marketplace'>('installed');
   const { tab: installedTab, setTab: setInstalledTab } = useSubTab('addons');
   const { mutate: fetchCatalogsData, isPending: catalogLoading } = useMutation({
     mutationFn: (currentUserData: typeof userData) =>
-      fetchCatalogs(
-        currentUserData,
-        uuid && password ? { uuid, password } : undefined
-      ),
+      fetchCatalogs(currentUserData),
     onSuccess: (catalogs, currentUserData) => {
       setUserData((prev) => {
         const existingMods = prev.catalogModifications || [];
