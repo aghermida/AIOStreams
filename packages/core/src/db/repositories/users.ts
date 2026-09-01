@@ -129,9 +129,8 @@ export class UserRepository {
     }
 
     const uuid = await this.generateUUID();
-    const finalConfig = config.parentConfig?.uuid ? config : validatedConfig;
     const { encryptedConfig, salt: configSalt } = await this.encryptConfig(
-      finalConfig,
+      config.parentConfig?.uuid ? config : validatedConfig,
       password
     );
     const hashedPassword = await getTextHash(password);
@@ -408,9 +407,8 @@ export class UserRepository {
       );
     }
 
-    const finalConfig = config.parentConfig?.uuid ? config : validatedConfig;
     const { encryptedConfig } = await this.encryptConfig(
-      finalConfig,
+      config.parentConfig?.uuid ? config : validatedConfig,
       password,
       current.config_salt
     );
