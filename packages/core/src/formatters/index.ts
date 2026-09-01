@@ -14,7 +14,6 @@ import {
   GDriveFormatter,
   LightGDriveFormatter,
   MinimalisticGdriveFormatter,
-  LiteFormatter,
   PrismFormatter,
   TamtaroFormatter,
 } from './predefined.js';
@@ -51,8 +50,6 @@ export function createFormatter(ctx: FormatterContext): BaseFormatter {
       return new LightGDriveFormatter(ctx);
     case 'minimalisticgdrive':
       return new MinimalisticGdriveFormatter(ctx);
-    case 'lite':
-      return new LiteFormatter(ctx);
     case 'prism':
       return new PrismFormatter(ctx);
     case 'tamtaro':

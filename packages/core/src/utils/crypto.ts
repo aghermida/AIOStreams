@@ -194,11 +194,3 @@ export async function deriveKey(
 export function generateUUID(): string {
   return randomUUID();
 }
-
-/**
- * Generates a random, url-safe password of the given byte length (before
- * base64url encoding, so the resulting string is somewhat longer).
- */
-export function generatePassword(length = 20): string {
-  return randomBytes(length).toString('base64url');
-}

@@ -43,9 +43,3 @@ export class MinimalisticGdriveFormatter extends BaseFormatter {
     super(BUILTIN_FORMATTER_DEFINITIONS['minimalisticgdrive']!, ctx);
   }
 }
-
-export class LiteFormatter extends BaseFormatter {
-  constructor(ctx: FormatterContext) {
-    super(BUILTIN_FORMATTER_DEFINITIONS['lite']!, ctx);
-  }
-}

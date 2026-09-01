@@ -7,9 +7,6 @@ import {
   SettingsRepository,
   AnalyticsRepository,
   AdminUsersRepository,
-  UserRepository,
-  generatePassword,
-  type UserData,
   TaskManager,
   Cache,
   describeDiskCaches,
@@ -23,7 +20,7 @@ import {
   type LogQuery,
 } from '@aiostreams/core';
 import { ZodError } from 'zod';
-import { requireAdmin, injectAccessKey } from '../../../middlewares/auth.js';
+import { requireAdmin } from '../../../middlewares/auth.js';
 import { createResponse } from '../../../utils/responses.js';
 import {
   getSystemMetrics,
@@ -779,97 +776,6 @@ router.delete('/users', async (req, res) => {
     'users batch deleted'
   );
   res.status(200).json(createResponse({ success: true, data: { deleted } }));
-});
-
-/**
- * Admin-provisioned user creation, for private instances where friends
- * shouldn't need a site login. `parentConfig` (uuid+password of an existing
- * profile) makes a one-time full copy of that profile's settings (services,
- * addons, ordering, filters, everything) into the new user's own config —
- * deliberately NOT the live parentConfig-link mechanism self-service "child"
- * profiles use, since that leaves the new profile's own config nearly empty
- * (inheriting at request time) and tied to the source profile going forward.
- * The plaintext password is returned exactly once — only a one-way hash and
- * a separately-encrypted copy are stored afterward.
- */
-router.post('/users', async (req, res) => {
-  const body = (req.body ?? {}) as {
-    password?: unknown;
-    parentConfig?: { uuid?: unknown; password?: unknown };
-  };
-  const username =
-    (req as { user?: { username?: string } }).user?.username ?? 'admin';
-  // Admin-typed passwords tend to get reused/shared; hold them to a higher
-  // floor than the generic 6-char minimum self-service accounts allow.
-  // Generated passwords (crypto-random, ~27 chars) always clear this.
-  const MIN_ADMIN_PASSWORD_LENGTH = 12;
-  if (
-    typeof body.password === 'string' &&
-    body.password.length > 0 &&
-    body.password.length < MIN_ADMIN_PASSWORD_LENGTH
-  ) {
-    return res.status(400).json(
-      createResponse({
-        success: false,
-        error: {
-          code: 'BAD_REQUEST',
-          message: `Password must be at least ${MIN_ADMIN_PASSWORD_LENGTH} characters, or left blank to auto-generate one`,
-        },
-      })
-    );
-  }
-  const password =
-    typeof body.password === 'string' && body.password.length > 0
-      ? body.password
-      : generatePassword();
-  const parentConfig =
-    body.parentConfig &&
-    typeof body.parentConfig.uuid === 'string' &&
-    typeof body.parentConfig.password === 'string'
-      ? {
-          uuid: body.parentConfig.uuid,
-          password: body.parentConfig.password,
-        }
-      : undefined;
-
-  let newUserConfig: UserData;
-  if (parentConfig) {
-    const sourceConfig = await UserRepository.getRawUser(
-      parentConfig.uuid,
-      parentConfig.password
-    );
-    if (!sourceConfig) {
-      return res.status(400).json(
-        createResponse({
-          success: false,
-          error: {
-            code: 'BAD_REQUEST',
-            message: 'Source profile not found or password incorrect',
-          },
-        })
-      );
-    }
-    // Full independent copy, not a live link: drop identity/link fields so
-    // this becomes the new user's own config from this point forward.
-    newUserConfig = { ...sourceConfig };
-    delete newUserConfig.uuid;
-    delete newUserConfig.encryptedPassword;
-    delete newUserConfig.parentConfig;
-  } else {
-    newUserConfig = {} as UserData;
-  }
-  injectAccessKey(req, newUserConfig);
-  const { uuid, encryptedPassword } = await UserRepository.createUser(
-    newUserConfig,
-    password
-  );
-  logger.warn({ uuid, username }, 'user created by admin');
-  res.status(201).json(
-    createResponse({
-      success: true,
-      data: { uuid, password, encryptedPassword },
-    })
-  );
 });
 
 // =============================================================================
