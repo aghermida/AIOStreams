@@ -396,9 +396,7 @@ export function UsersPage() {
 
       <Modal
         open={!!detail}
-        onOpenChange={(o) => {
-          if (!o) setDetail(null);
-        }}
+        onOpenChange={(o) => !o && setDetail(null)}
         title="User detail"
       >
         {detail && (

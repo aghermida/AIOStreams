@@ -184,7 +184,10 @@ export function attachSession(
  *
  * Requires `attachSession` to have run first so `req.user` is populated.
  */
-export function injectAccessKey(req: { user?: unknown }, config: unknown): void {
+export function injectAccessKey(
+  req: { user?: unknown },
+  config: unknown
+): void {
   const key = getConfigAccessKey();
   if (key && req.user && config && typeof config === 'object') {
     (config as { accessKey?: string }).accessKey = key;
