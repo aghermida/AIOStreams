@@ -440,7 +440,7 @@ export function MyAddons({
               intent="primary-subtle"
               icon={<LuArrowUpDown className="w-5 h-5" />}
               onClick={() => reorderModal.open()}
-              disabled={(userData.presets ?? []).length < 2}
+              disabled={userData.presets.length < 2}
               title="Reorder Priority"
             />
             <IconButton
@@ -455,7 +455,7 @@ export function MyAddons({
         }
       >
         {/* ── Always-visible toolbar ── */}
-        {(userData.presets ?? []).length > 0 && (
+        {userData.presets.length > 0 && (
           <div className="space-y-3 mb-4">
             {/* Row 1: Search bar + action icons (actions wrap to own row on mobile) */}
             <div className="flex flex-wrap items-center gap-2">
@@ -530,7 +530,7 @@ export function MyAddons({
                     : 'bg-transparent text-[--muted] border-[--border] hover:bg-[--subtle]'
                 }`}
               >
-                All ({(userData.presets ?? []).length})
+                All ({userData.presets.length})
               </button>
               {orderedCategories.map((cat) => {
                 const count = allCategories.get(cat) || 0;
@@ -559,7 +559,7 @@ export function MyAddons({
         )}
 
         {/* ── Addon list ── */}
-        {(userData.presets ?? []).length === 0 ? (
+        {userData.presets.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12">
             <span className="text-lg text-muted-foreground font-semibold text-center">
               Looks like you don't have any addons...
