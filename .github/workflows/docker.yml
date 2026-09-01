@@ -23,14 +23,41 @@ jobs:
 
       - name: Sync fork with upstream
         run: |
+          # Paths this fork deletes on purpose even though upstream still
+          # maintains them. Upstream editing one of these produces a
+          # modify/delete conflict on every sync unless we resolve it here
+          # by keeping the deletion. See CLAUDE.md's "Fork sync conventions".
+          FORK_DELETED_UPSTREAM_FILES=(
+            ".github/workflows/release.yml" # release-please not used by this fork; deleted 2026-05-22 (db8afd51)
+          )
+
           git remote add upstream https://github.com/Viren070/AIOStreams.git
           git fetch upstream
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           if ! git merge upstream/main --no-edit; then
-            git merge --abort
-            echo "::error::Merge conflict syncing upstream/main into main. Resolve manually and merge via PR."
-            exit 1
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            resolvable=true
+            for f in "${conflicts[@]}"; do
+              known=false
+              for d in "${FORK_DELETED_UPSTREAM_FILES[@]}"; do
+                [ "$f" = "$d" ] && known=true && break
+              done
+              if [ "$known" = true ]; then
+                git rm -f "$f"
+              else
+                resolvable=false
+              fi
+            done
+
+            if [ "$resolvable" = true ] && [ "${#conflicts[@]}" -gt 0 ]; then
+              git commit --no-edit
+            else
+              git merge --abort
+              echo "::error::Merge conflict syncing upstream/main into main. Resolve manually and merge via PR."
+              exit 1
+            fi
           fi
           git push origin main
 
