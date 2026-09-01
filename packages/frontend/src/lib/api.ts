@@ -238,11 +238,6 @@ interface ResolveSyncedResponse {
   errors?: { url: string; error: string }[];
 }
 
-interface FormatStreamResponse {
-  name: string;
-  description: string;
-}
-
 interface CatalogInfo {
   id: string;
   type: string;
@@ -498,15 +493,6 @@ export async function resolveStreamExpressions(
 ) {
   const result = await resolveSynced({ selUrls: urls }, credentials);
   return { expressions: result.expressions || [], errors: result.errors };
-}
-
-/**
- * Format stream for display
- */
-export async function getFormattedStream(stream: ParsedStream, context?: any) {
-  return api<FormatStreamResponse>('POST /format', {
-    body: { stream, context },
-  });
 }
 
 /**
@@ -825,7 +811,6 @@ export type {
   UpdateUserResponse,
   ResolvePatternsResponse,
   ResolveSyncedResponse,
-  FormatStreamResponse,
   CatalogInfo,
   GDriveTokenResponse,
 };
