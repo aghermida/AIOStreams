@@ -13,7 +13,7 @@ import {
   type ConfigProfile,
 } from '@/lib/api';
 import { configProfilesQuery } from '@/lib/queries';
-import { DefaultUserData, useUserData } from '@/context/userData';
+import { useUserData } from '@/context/userData';
 import { useSession } from '@/context/session';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -59,12 +59,7 @@ export function ConfigModal({
   const applyConfig = React.useCallback(
     async (loadUuid: string, loadPassword: string) => {
       const result = await loadRawUserConfig(loadUuid, loadPassword);
-      // A profile whose config only carries a parentConfig link (e.g. an
-      // admin-provisioned account inheriting everything from its parent)
-      // legitimately omits fields like `presets`/`services` from its raw
-      // config - the UI assumes those are always arrays, so backfill
-      // defaults rather than replacing wholesale with possibly-sparse data.
-      setUserData(() => ({ ...DefaultUserData, ...result.userData }));
+      setUserData(() => result.userData);
       setUuid(loadUuid);
       setPassword(loadPassword);
       setEncryptedPassword(result.encryptedPassword);

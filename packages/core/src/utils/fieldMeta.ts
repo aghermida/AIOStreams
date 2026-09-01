@@ -260,25 +260,3 @@ export const FIELD_META: Omit<Record<keyof UserData, FieldMeta>, IgnoredKeys> = 
   variants: { label: 'Variants', group: 'misc', type: 'list', identityKey: 'id', menu: 'miscellaneous', subTab: 'variants', sectionId: 'variants', keywords: ['variant', 'sub-profile', 'cel', 'config expression', 'override'], ignoreForParentConfig: true },
   groups: { label: 'Groups', group: 'misc', type: 'scalar', menu: 'addons', subTab: 'addons', keywords: ['groupings'], ignoreForParentConfig: true, sectionId: 'fetchStrategy' },
 };
-
-/** Menus that correspond to real, copyable settings — excludes 'save-install' (access key/session-only) and 'stats' (nothing lives there). */
-export const CLONE_SECTIONS = [
-  'services',
-  'addons',
-  'filters',
-  'sorting',
-  'formatter',
-  'proxy',
-  'miscellaneous',
-  'about',
-] as const satisfies readonly MenuId[];
-export type CloneSection = (typeof CLONE_SECTIONS)[number];
-
-/** All `UserData` keys whose field metadata places them under one of the given menus. */
-export function userDataKeysForMenus(
-  menus: readonly string[]
-): (keyof UserData)[] {
-  return (Object.keys(FIELD_META) as (keyof typeof FIELD_META)[]).filter(
-    (key) => menus.includes(FIELD_META[key].menu)
-  );
-}

@@ -133,7 +133,6 @@ export class UserRepository {
       finalConfig,
       password
     );
-    const configEscrow = this.encryptEscrow(finalConfig);
     const hashedPassword = await getTextHash(password);
 
     const { success, data } = encryptString(password);
@@ -145,8 +144,8 @@ export class UserRepository {
     try {
       await getDb().tx(async (tx) => {
         await tx.exec(
-          sql`INSERT INTO users (uuid, password_hash, config, config_salt, config_escrow)
-              VALUES (${uuid}, ${hashedPassword}, ${encryptedConfig}, ${configSalt}, ${configEscrow})`
+          sql`INSERT INTO users (uuid, password_hash, config, config_salt)
+              VALUES (${uuid}, ${hashedPassword}, ${encryptedConfig}, ${configSalt})`
         );
       });
       logger.info(`Created a new user with UUID: ${uuid}`);
@@ -414,12 +413,11 @@ export class UserRepository {
       password,
       current.config_salt
     );
-    const configEscrow = this.encryptEscrow(finalConfig);
 
     try {
       await db.tx(async (tx) => {
         await tx.exec(
-          sql`UPDATE users SET config = ${encryptedConfig}, config_escrow = ${configEscrow}, updated_at = CURRENT_TIMESTAMP WHERE uuid = ${uuid}`
+          sql`UPDATE users SET config = ${encryptedConfig}, updated_at = CURRENT_TIMESTAMP WHERE uuid = ${uuid}`
         );
       });
       logger.info(`Updated user ${uuid} with an updated configuration`);
@@ -521,7 +519,6 @@ export class UserRepository {
       currentConfig,
       newPassword
     );
-    const configEscrow = this.encryptEscrow(currentConfig);
     const newPasswordHash = await getTextHash(newPassword);
     const { success, data: newEncryptedPasswordToken } =
       encryptString(newPassword);
@@ -536,7 +533,6 @@ export class UserRepository {
               SET password_hash = ${newPasswordHash},
                   config = ${encryptedConfig},
                   config_salt = ${newConfigSalt},
-                  config_escrow = ${configEscrow},
                   updated_at = CURRENT_TIMESTAMP
               WHERE uuid = ${uuid}`
         );
@@ -562,97 +558,7 @@ export class UserRepository {
     }
   }
 
-  /**
-   * Force-reset a user's password without needing the current one. Requires
-   * a `config_escrow` value (populated on every create/save/password-change
-   * since migration 0021) - a copy of the config encrypted with the
-   * instance secret key alone, the same primitive already used for the
-   * `encryptedPassword` token in every install URL. Throws
-   * PARENT_CONFIG_UNAVAILABLE-shaped error if no escrow exists yet (account
-   * predates this feature and was never re-saved) - the config truly cannot
-   * be recovered in that case.
-   */
-  static async forceResetPassword(
-    uuid: string,
-    newPassword: string
-  ): Promise<{ encryptedPassword: string }> {
-    if (newPassword.length < 6) {
-      throw new APIError(constants.ErrorCode.USER_NEW_PASSWORD_TOO_SHORT);
-    }
-
-    const db = getDb();
-    const row = await db.maybeOne<UserRow & { config_escrow: string | null }>(
-      sql`SELECT config_escrow FROM users WHERE uuid = ${uuid}`
-    );
-    if (!row) {
-      throw new APIError(constants.ErrorCode.USER_INVALID_DETAILS);
-    }
-    if (!row.config_escrow) {
-      throw new APIError(
-        constants.ErrorCode.USER_INVALID_CONFIG,
-        undefined,
-        'No recovery data available for this user - it was created or last saved before password recovery was added. It cannot be recovered without the current password.'
-      );
-    }
-
-    const currentConfig = this.decryptEscrow(row.config_escrow);
-
-    const { encryptedConfig, salt: newConfigSalt } = await this.encryptConfig(
-      currentConfig,
-      newPassword
-    );
-    const configEscrow = this.encryptEscrow(currentConfig);
-    const newPasswordHash = await getTextHash(newPassword);
-    const { success, data: newEncryptedPasswordToken } =
-      encryptString(newPassword);
-    if (!success) {
-      throw new APIError(constants.ErrorCode.ENCRYPTION_ERROR);
-    }
-
-    try {
-      await db.tx(async (tx) => {
-        await tx.exec(
-          sql`UPDATE users
-              SET password_hash = ${newPasswordHash},
-                  config = ${encryptedConfig},
-                  config_salt = ${newConfigSalt},
-                  config_escrow = ${configEscrow},
-                  updated_at = CURRENT_TIMESTAMP
-              WHERE uuid = ${uuid}`
-        );
-        await ConfigProfileRepository.reencryptForUuid(
-          tx,
-          uuid,
-          newEncryptedPasswordToken
-        );
-      });
-      logger.info(`Force-reset password for user ${uuid} (admin recovery)`);
-      return { encryptedPassword: newEncryptedPasswordToken };
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to force-reset password for user ${uuid}: ${msg}`);
-      throw dbError(error);
-    }
-  }
-
   // --- helpers (unchanged from v2) ---
-
-  /** Encrypts a config with the instance secret key alone (no password). */
-  private static encryptEscrow(config: UserData): string {
-    const { success, data } = encryptString(JSON.stringify(config));
-    if (!success) {
-      throw new APIError(constants.ErrorCode.ENCRYPTION_ERROR);
-    }
-    return data;
-  }
-
-  private static decryptEscrow(escrow: string): UserData {
-    const { success, data } = decryptString(escrow);
-    if (!success || !data) {
-      throw new APIError(constants.ErrorCode.ENCRYPTION_ERROR);
-    }
-    return JSON.parse(data);
-  }
 
   private static async encryptConfig(
     config: UserData,

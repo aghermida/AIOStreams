@@ -44,6 +44,7 @@ import { linkedAccounts } from './0023_linked_accounts.js';
 // ---------------------------------------------------------------------------
 import { userLabel } from './9000_user_label.js';
 import { configEscrow } from './9001_config_escrow.js';
+import { dropUserLabelAndEscrow } from './9002_drop_user_label_and_escrow.js';
 import type { Migration } from './types.js';
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -72,6 +73,7 @@ export const MIGRATIONS: readonly Migration[] = [
   linkedAccounts,
   userLabel,
   configEscrow,
+  dropUserLabelAndEscrow,
 ];
 
 export type { Migration } from './types.js';

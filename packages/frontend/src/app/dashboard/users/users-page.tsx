@@ -6,9 +6,6 @@ import {
   BiSearch,
   BiInfoCircle,
   BiPlus,
-  BiPencil,
-  BiCheck,
-  BiX,
   BiCopy,
 } from 'react-icons/bi';
 import { PageWrapper } from '@/components/shared/page-wrapper';
@@ -31,25 +28,9 @@ import { useStatus } from '@/context/status';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { copyToClipboard } from '@/utils/clipboard';
-import {
-  CLONE_SECTIONS,
-  type CloneSection,
-} from '../../../../../core/src/utils/fieldMeta';
-
-const CLONE_SECTION_LABELS: Record<CloneSection, string> = {
-  services: 'Services (debrid/usenet credentials, API keys)',
-  addons: 'Addons & catalogs',
-  filters: 'Filters',
-  sorting: 'Sorting',
-  formatter: 'Formatter',
-  proxy: 'Proxy',
-  miscellaneous: 'Miscellaneous settings',
-  about: 'Branding (addon name/logo/description)',
-};
 
 interface UserItem {
   uuid: string;
-  label: string | null;
   createdAt: string;
   updatedAt: string;
   accessedAt: string;
@@ -128,62 +109,32 @@ export function UsersPage() {
     onError: (e: any) => toast.error(e?.message ?? 'Batch delete failed'),
   });
 
-  // Inline nickname editing.
-  const [editingUuid, setEditingUuid] = React.useState<string | null>(null);
-  const [editLabelValue, setEditLabelValue] = React.useState('');
-  const setLabel = useMutation({
-    mutationFn: ({ uuid, label }: { uuid: string; label: string | null }) =>
-      api(`PATCH /dashboard/users/${uuid}/label`, { body: { label } }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['dashboard', 'users'] });
-    },
-    onError: (e: any) => toast.error(e?.message ?? 'Failed to update nickname'),
-    onSettled: () => setEditingUuid(null),
-  });
-
   // Create User: admin provisions a friend's profile without a shared login.
   const [createOpen, setCreateOpen] = React.useState(false);
-  const [newLabel, setNewLabel] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [cloneFrom, setCloneFrom] = React.useState(false);
   const [sourceUuid, setSourceUuid] = React.useState('');
   const [sourcePassword, setSourcePassword] = React.useState('');
-  const [cloneSections, setCloneSections] = React.useState<
-    Set<CloneSection>
-  >(new Set(CLONE_SECTIONS));
   const [createdCredentials, setCreatedCredentials] =
     React.useState<CreatedCredentials | null>(null);
   const [credentialsModalTitle, setCredentialsModalTitle] =
     React.useState('User created');
 
   const resetCreateForm = () => {
-    setNewLabel('');
     setNewPassword('');
     setCloneFrom(false);
     setSourceUuid('');
     setSourcePassword('');
-    setCloneSections(new Set(CLONE_SECTIONS));
-  };
-
-  const toggleCloneSection = (section: CloneSection, checked: boolean) => {
-    setCloneSections((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(section);
-      else next.delete(section);
-      return next;
-    });
   };
 
   const createUser = useMutation({
     mutationFn: () =>
       api<CreatedCredentials>('POST /dashboard/users', {
         body: {
-          label: newLabel.trim() || undefined,
           password: newPassword || undefined,
           parentConfig: cloneFrom
             ? { uuid: sourceUuid.trim(), password: sourcePassword }
             : undefined,
-          cloneSections: cloneFrom ? [...cloneSections] : undefined,
         },
       }),
     onSuccess: (data) => {
@@ -194,42 +145,6 @@ export function UsersPage() {
       qc.invalidateQueries({ queryKey: ['dashboard', 'users'] });
     },
     onError: (e: any) => toast.error(e?.message ?? 'Failed to create user'),
-  });
-
-  // Admin-initiated password reset: no cooperation from the user and no
-  // current password needed. Relies on the config's server-recoverable
-  // escrow copy, which only exists once a user's config has been created,
-  // saved, or had its password changed after this feature shipped.
-  const [resetPasswordOpen, setResetPasswordOpen] = React.useState(false);
-  const [newPasswordInput, setNewPasswordInput] = React.useState('');
-
-  const resetResetPasswordForm = () => {
-    setResetPasswordOpen(false);
-    setNewPasswordInput('');
-  };
-
-  const resetPassword = useMutation({
-    mutationFn: (uuid: string) =>
-      api<{ password: string; encryptedPassword: string }>(
-        `POST /dashboard/users/${uuid}/reset-password`,
-        {
-          body: {
-            newPassword: newPasswordInput || undefined,
-          },
-        }
-      ),
-    onSuccess: (data) => {
-      if (!detail) return;
-      setDetail(null);
-      resetResetPasswordForm();
-      setCredentialsModalTitle('Password reset');
-      setCreatedCredentials({
-        uuid: detail.uuid,
-        password: data.password,
-        encryptedPassword: data.encryptedPassword,
-      });
-    },
-    onError: (e: any) => toast.error(e?.message ?? 'Failed to reset password'),
   });
 
   const manifestUrl = createdCredentials
@@ -406,7 +321,6 @@ export function UsersPage() {
                         aria-label="Select all on page"
                       />
                     </th>
-                    <th className="p-3">Nickname</th>
                     <th className="p-3">UUID</th>
                     {(
                       [
@@ -439,62 +353,6 @@ export function UsersPage() {
                           onValueChange={(v) => toggleRow(u.uuid, v)}
                           aria-label={`Select ${u.uuid}`}
                         />
-                      </td>
-                      <td className="p-3">
-                        {editingUuid === u.uuid ? (
-                          <div className="flex items-center gap-1">
-                            <TextInput
-                              value={editLabelValue}
-                              onValueChange={setEditLabelValue}
-                              placeholder="Nickname"
-                              autoFocus
-                              className="w-32"
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter')
-                                  setLabel.mutate({
-                                    uuid: u.uuid,
-                                    label: editLabelValue.trim() || null,
-                                  });
-                                if (e.key === 'Escape') setEditingUuid(null);
-                              }}
-                            />
-                            <IconButton
-                              size="sm"
-                              intent="gray-subtle"
-                              icon={<BiCheck />}
-                              aria-label="Save nickname"
-                              loading={setLabel.isPending}
-                              onClick={() =>
-                                setLabel.mutate({
-                                  uuid: u.uuid,
-                                  label: editLabelValue.trim() || null,
-                                })
-                              }
-                            />
-                            <IconButton
-                              size="sm"
-                              intent="gray-subtle"
-                              icon={<BiX />}
-                              aria-label="Cancel"
-                              onClick={() => setEditingUuid(null)}
-                            />
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 group">
-                            <span>{u.label || '—'}</span>
-                            <IconButton
-                              size="sm"
-                              intent="gray-subtle"
-                              icon={<BiPencil />}
-                              aria-label="Edit nickname"
-                              className="opacity-0 group-hover:opacity-100"
-                              onClick={() => {
-                                setEditingUuid(u.uuid);
-                                setEditLabelValue(u.label ?? '');
-                              }}
-                            />
-                          </div>
-                        )}
                       </td>
                       <td
                         className="p-3 font-mono text-xs cursor-pointer"
@@ -539,7 +397,7 @@ export function UsersPage() {
                   {d && pageItems.length === 0 && (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={6}
                         className="p-8 text-center text-[--muted]"
                       >
                         No users found.
@@ -619,19 +477,12 @@ export function UsersPage() {
       <Modal
         open={!!detail}
         onOpenChange={(o) => {
-          if (!o) {
-            setDetail(null);
-            resetResetPasswordForm();
-          }
+          if (!o) setDetail(null);
         }}
         title="User detail"
       >
         {detail && (
           <div className="space-y-3 text-sm">
-            <div>
-              <div className="text-xs text-[--muted]">Nickname</div>
-              <div>{detail.label || '—'}</div>
-            </div>
             <div>
               <div className="text-xs text-[--muted]">UUID</div>
               <div className="font-mono break-all">{detail.uuid}</div>
@@ -673,50 +524,6 @@ export function UsersPage() {
                 <span className="text-[--muted]">None</span>
               )}
             </div>
-
-            <div className="pt-2 border-t border-[--border]">
-              {!resetPasswordOpen ? (
-                <Button
-                  size="sm"
-                  intent="gray-outline"
-                  onClick={() => setResetPasswordOpen(true)}
-                >
-                  Reset Password
-                </Button>
-              ) : (
-                <div className="space-y-3">
-                  <Alert
-                    intent="alert"
-                    isClosable={false}
-                    description="This immediately replaces the user's password — they'll need the new one to access their profile again. Only works if this account was created or saved after password recovery was added; older, never-resaved accounts can't be recovered."
-                  />
-                  <PasswordInput
-                    label="New password"
-                    value={newPasswordInput}
-                    onValueChange={setNewPasswordInput}
-                    placeholder="Leave blank to auto-generate"
-                    autoComplete="off"
-                  />
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      size="sm"
-                      intent="gray-outline"
-                      onClick={resetResetPasswordForm}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      intent="white"
-                      loading={resetPassword.isPending}
-                      onClick={() => resetPassword.mutate(detail.uuid)}
-                    >
-                      Reset Password
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         )}
       </Modal>
@@ -750,12 +557,6 @@ export function UsersPage() {
         }
       >
         <div className="space-y-4 text-sm">
-          <TextInput
-            label="Nickname"
-            value={newLabel}
-            onValueChange={setNewLabel}
-            placeholder="e.g. Alice"
-          />
           <PasswordInput
             label="Password"
             value={newPassword}
@@ -783,42 +584,6 @@ export function UsersPage() {
                 placeholder="That profile's password"
                 autoComplete="off"
               />
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium uppercase tracking-wide text-[--muted]">
-                    What to copy
-                  </span>
-                  <Button
-                    type="button"
-                    intent="white-link"
-                    size="xs"
-                    onClick={() =>
-                      setCloneSections(
-                        cloneSections.size === CLONE_SECTIONS.length
-                          ? new Set()
-                          : new Set(CLONE_SECTIONS)
-                      )
-                    }
-                  >
-                    {cloneSections.size === CLONE_SECTIONS.length
-                      ? 'Select none'
-                      : 'Select all'}
-                  </Button>
-                </div>
-                <div className="rounded-[--radius] border border-[--border] divide-y divide-[--border]">
-                  {CLONE_SECTIONS.map((section) => (
-                    <div key={section} className="px-3 py-2 hover:bg-white/5">
-                      <Checkbox
-                        label={CLONE_SECTION_LABELS[section]}
-                        value={cloneSections.has(section)}
-                        onValueChange={(v) =>
-                          toggleCloneSection(section, v === true)
-                        }
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           )}
         </div>

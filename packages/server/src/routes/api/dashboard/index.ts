@@ -9,10 +9,7 @@ import {
   AdminUsersRepository,
   UserRepository,
   generatePassword,
-  CLONE_SECTIONS,
-  userDataKeysForMenus,
   type UserData,
-  type CloneSection,
   TaskManager,
   Cache,
   describeDiskCaches,
@@ -50,15 +47,6 @@ router.use('/blocklist', blocklistDashboard);
 
 // Unified stream accounting: live sessions, history, bandwidth, bans.
 router.use('/streams', streamsDashboard);
-
-// presets/formatter/sortCriteria have no schema defaults, so any config
-// missing them - whether blank or partially cloned - fails validation.
-const REQUIRED_USER_DATA_KEYS = ['presets', 'formatter', 'sortCriteria'] as const;
-const MINIMAL_VALID_USER_DATA: Pick<UserData, (typeof REQUIRED_USER_DATA_KEYS)[number]> = {
-  presets: [],
-  formatter: { id: 'gdrive' },
-  sortCriteria: { global: [{ key: 'cached', direction: 'desc' }] },
-};
 
 function csv(v: unknown): string[] | undefined {
   if (typeof v !== 'string' || !v.trim()) return undefined;
@@ -802,14 +790,11 @@ router.delete('/users', async (req, res) => {
  */
 router.post('/users', async (req, res) => {
   const body = (req.body ?? {}) as {
-    label?: unknown;
     password?: unknown;
     parentConfig?: { uuid?: unknown; password?: unknown };
-    cloneSections?: unknown;
   };
   const username =
     (req as { user?: { username?: string } }).user?.username ?? 'admin';
-  const label = typeof body.label === 'string' ? body.label : undefined;
   // Admin-typed passwords tend to get reused/shared; hold them to a higher
   // floor than the generic 6-char minimum self-service accounts allow.
   // Generated passwords (crypto-random, ~27 chars) always clear this.
@@ -862,130 +847,23 @@ router.post('/users', async (req, res) => {
     }
     // Full independent copy, not a live link: drop identity/link fields so
     // this becomes the new user's own config from this point forward.
-    const requestedSections = Array.isArray(body.cloneSections)
-      ? body.cloneSections.filter((s): s is CloneSection =>
-          (CLONE_SECTIONS as readonly string[]).includes(s as string)
-        )
-      : undefined;
-    if (requestedSections && requestedSections.length > 0) {
-      // Partial copy: only bring over the fields that belong to the
-      // sections the admin picked (e.g. skip "Services" to leave API keys
-      // blank for the new user).
-      newUserConfig = {} as UserData;
-      // sortCriteria/formatter/presets are required by the schema regardless
-      // of which sections were picked - always carry them over so the config
-      // stays valid even when "Sorting"/"Formatting"/"Addons" are unchecked.
-      const keysToCopy = new Set<keyof UserData>([
-        ...userDataKeysForMenus(requestedSections),
-        ...REQUIRED_USER_DATA_KEYS,
-      ]);
-      for (const key of keysToCopy) {
-        if (key in sourceConfig) {
-          (newUserConfig as Record<string, unknown>)[key] = (
-            sourceConfig as Record<string, unknown>
-          )[key];
-        }
-      }
-    } else {
-      newUserConfig = { ...sourceConfig };
-    }
+    newUserConfig = { ...sourceConfig };
     delete newUserConfig.uuid;
     delete newUserConfig.encryptedPassword;
     delete newUserConfig.parentConfig;
   } else {
-    // No source to clone from: seed the bare minimum the schema requires
-    // (presets/formatter/sortCriteria have no defaults) so an otherwise
-    // empty config still validates. Everything else starts unset.
-    newUserConfig = { ...MINIMAL_VALID_USER_DATA } as UserData;
+    newUserConfig = {} as UserData;
   }
   injectAccessKey(req, newUserConfig);
   const { uuid, encryptedPassword } = await UserRepository.createUser(
     newUserConfig,
     password
   );
-  if (label) {
-    await AdminUsersRepository.setLabel(uuid, label);
-  }
-  logger.warn({ uuid, username, labeled: !!label }, 'user created by admin');
+  logger.warn({ uuid, username }, 'user created by admin');
   res.status(201).json(
     createResponse({
       success: true,
       data: { uuid, password, encryptedPassword },
-    })
-  );
-});
-
-router.patch('/users/:uuid/label', async (req, res) => {
-  const body = (req.body ?? {}) as { label?: unknown };
-  const label =
-    typeof body.label === 'string' || body.label === null
-      ? body.label
-      : undefined;
-  if (label === undefined) {
-    return res.status(400).json(
-      createResponse({
-        success: false,
-        error: { code: 'BAD_REQUEST', message: 'label must be a string or null' },
-      })
-    );
-  }
-  const ok = await AdminUsersRepository.setLabel(req.params.uuid, label);
-  res.status(ok ? 200 : 404).json(
-    ok
-      ? createResponse({ success: true, data: { label } })
-      : createResponse({
-          success: false,
-          error: { code: 'NOT_FOUND', message: 'User not found' },
-        })
-  );
-});
-
-/**
- * Admin-initiated password reset — the admin clicks this, not the user, and
- * no current password is needed. Uses the config's escrow copy (encrypted
- * with the instance secret key alone, populated on every create/save/
- * password-change since migration 0021) to decrypt-and-re-encrypt the
- * config under a new password without ever needing the old one. Fails with
- * a clear message if this particular account predates that escrow and was
- * never re-saved since — that config genuinely cannot be recovered.
- */
-router.post('/users/:uuid/reset-password', async (req, res) => {
-  const body = (req.body ?? {}) as { newPassword?: unknown };
-  const MIN_ADMIN_PASSWORD_LENGTH = 12;
-  if (
-    typeof body.newPassword === 'string' &&
-    body.newPassword.length > 0 &&
-    body.newPassword.length < MIN_ADMIN_PASSWORD_LENGTH
-  ) {
-    return res.status(400).json(
-      createResponse({
-        success: false,
-        error: {
-          code: 'BAD_REQUEST',
-          message: `New password must be at least ${MIN_ADMIN_PASSWORD_LENGTH} characters, or left blank to auto-generate one`,
-        },
-      })
-    );
-  }
-  const newPassword =
-    typeof body.newPassword === 'string' && body.newPassword.length > 0
-      ? body.newPassword
-      : generatePassword();
-
-  const { encryptedPassword } = await UserRepository.forceResetPassword(
-    req.params.uuid,
-    newPassword
-  );
-  const username =
-    (req as { user?: { username?: string } }).user?.username ?? 'admin';
-  logger.warn(
-    { uuid: req.params.uuid, username },
-    'password force-reset by admin'
-  );
-  res.status(200).json(
-    createResponse({
-      success: true,
-      data: { password: newPassword, encryptedPassword },
     })
   );
 });
