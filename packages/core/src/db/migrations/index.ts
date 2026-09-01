@@ -46,6 +46,7 @@ import { configSessions } from './0025_config_sessions.js';
 // ---------------------------------------------------------------------------
 import { userLabel } from './9000_user_label.js';
 import { configEscrow } from './9001_config_escrow.js';
+import { dropUserLabelAndEscrow } from './9002_drop_user_label_and_escrow.js';
 import type { Migration } from './types.js';
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -76,6 +77,7 @@ export const MIGRATIONS: readonly Migration[] = [
   configSessions,
   userLabel,
   configEscrow,
+  dropUserLabelAndEscrow,
 ];
 
 export type { Migration } from './types.js';
