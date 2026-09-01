@@ -568,20 +568,6 @@ const TemplateOption: React.FC<TemplateOptionProps> = ({
                   </MarkdownLite>
                 </div>
               )}
-              {(forcedValue ?? value ?? defaultValue) && (
-                <div className="mt-3 pt-3 border-t border-[--border]">
-                  <Button
-                    size="sm"
-                    intent="alert-subtle"
-                    onClick={() => {
-                      onChange(undefined);
-                      setShowInput(false);
-                    }}
-                  >
-                    Reset Credentials
-                  </Button>
-                </div>
-              )}
             </div>
           </div>
         </div>

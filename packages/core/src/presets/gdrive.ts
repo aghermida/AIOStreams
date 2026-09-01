@@ -152,7 +152,7 @@ export class GDrivePreset extends Preset {
       ID: 'stremio-gdrive',
       NAME: 'Stremio GDrive',
       DESCRIPTION: 'Access content from your Google Drive in Stremio!',
-      LOGO: `/assets/gdrive_logo.svg`,
+      LOGO: `https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/Google_Drive_icon_%282020%29.svg/1200px-Google_Drive_icon_%282020%29.svg.png`,
       URL: [`${appConfig.bootstrap.internalUrl}/builtins/gdrive`],
       TIMEOUT:
         appConfig.builtins.gdrive.timeout ?? appConfig.presets.defaultTimeout,
@@ -167,8 +167,7 @@ export class GDrivePreset extends Preset {
         !appConfig.builtins.gdrive.clientId ||
         !appConfig.builtins.gdrive.clientSecret
           ? {
-              reason:
-                'Not configured. **Admins:** set the OAuth Client ID and Secret in [Settings → Built-ins](/dashboard/settings?tab=builtins), then return here to authorise.',
+              reason: 'Not configured',
               disabled: true,
             }
           : undefined,
