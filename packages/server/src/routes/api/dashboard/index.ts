@@ -35,6 +35,7 @@ import {
 import usenetDashboard from './usenet.js';
 import blocklistDashboard from './blocklist.js';
 import streamsDashboard from './streams.js';
+import communityDashboard from './community.js';
 
 const router: Router = Router();
 const logger = createLogger('dashboard');
@@ -50,6 +51,9 @@ router.use('/blocklist', blocklistDashboard);
 
 // Unified stream accounting: live sessions, history, bandwidth, bans.
 router.use('/streams', streamsDashboard);
+
+// Community-shared formatters and templates: review queue, blocks.
+router.use('/community', communityDashboard);
 
 // presets/formatter/sortCriteria have no schema defaults, so any config
 // missing them - whether blank or partially cloned - fails validation.
