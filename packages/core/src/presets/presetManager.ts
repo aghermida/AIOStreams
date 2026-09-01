@@ -53,7 +53,6 @@ import { StreamAsiaPreset } from './streamasia.js';
 import { MoreLikeThisPreset } from './moreLikeThis.js';
 import { GDriveAPI } from '../builtins/gdrive/index.js';
 import { GDrivePreset } from './gdrive.js';
-import { NextcloudPreset } from './nextcloud.js';
 import { ContentDeepDivePreset } from './contentDeepDive.js';
 import { AICompanionPreset } from './aiCompanion.js';
 import { GoogleOAuth } from '../builtins/gdrive/api.js';
@@ -81,6 +80,7 @@ import { StreamNZBPreset } from './streamnzb.js';
 import { DavexPreset } from './davex.js';
 import { HdHubPreset } from './hdhub.js';
 import { BaguettioPreset } from './baguettio.js';
+import { NextcloudPreset } from './nextcloud.js';
 import { Preset } from './index.js';
 
 let PRESET_LIST: string[] = [
@@ -108,7 +108,6 @@ let PRESET_LIST: string[] = [
   'jackett',
   'nzbhydra',
   'stremio-gdrive',
-  'nextcloud-media',
   'jackettio',
   'peerflix',
   'orion',
@@ -164,6 +163,7 @@ let PRESET_LIST: string[] = [
   'ai-search',
   'more-like-this',
   'content-deep-dive',
+  'nextcloud-media',
 ].filter(Boolean);
 
 export class PresetManager {
@@ -301,8 +301,6 @@ export class PresetManager {
         return AICompanionPreset;
       case 'stremio-gdrive':
         return GDrivePreset;
-      case 'nextcloud-media':
-        return NextcloudPreset;
       case 'torbox-search':
         return TorBoxSearchPreset;
       case 'torznab':
@@ -347,6 +345,8 @@ export class PresetManager {
         return HdHubPreset;
       case 'baguettio':
         return BaguettioPreset;
+      case 'nextcloud-media':
+        return NextcloudPreset;
       default:
         throw new Error(`Preset ${id} not found`);
     }

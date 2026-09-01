@@ -41,12 +41,12 @@ export {
   LibraryAddon,
   preWarmLibraryCaches,
   refreshLibraryCacheForService,
+  testNabEndpoint,
+  type NabNamespaceId,
   NextcloudAddon,
   validateNextcloudMediaToken,
   getNextcloudMimeType,
   type NextcloudConfig,
-  testNabEndpoint,
-  type NabNamespaceId,
 } from './builtins/index.js';
 export { PresetManager } from './presets/index.js';
 export {

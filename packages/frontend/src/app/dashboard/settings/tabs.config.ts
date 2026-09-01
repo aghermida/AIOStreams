@@ -259,10 +259,10 @@ const ACRONYMS: Record<string, string> = {
   oidc: 'OIDC',
   sso: 'SSO',
   gdrive: 'GDrive',
-  nextcloud: 'Nextcloud',
   sqlite: 'SQLite',
   postgres: 'Postgres',
   redis: 'Redis',
+  nextcloud: 'Nextcloud',
 };
 
 /**
