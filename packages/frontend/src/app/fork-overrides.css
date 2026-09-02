@@ -1,0 +1,20 @@
+/*
+ * Fork-only visual overrides. Nothing here touches upstream's markup or
+ * logic - it only hides elements via selectors, so upstream can keep
+ * changing the components underneath without conflicts here.
+ */
+
+/* Hide the "Donate" entry in the configure page's sidebar/footer menu.
+   Upstream's own VerticalMenu component already stamps each item's name
+   onto the DOM via data-vertical-menu-item, so no source file needs
+   touching for this one. */
+[data-vertical-menu-item='Donate'] {
+  display: none !important;
+}
+
+/* Hide the "Donate" button and resource row on the About page. These two
+   need a marker added at their render site (see hero.tsx and
+   resources.tsx) since neither exposes a stable selector on its own. */
+.fork-hide-donate {
+  display: none !important;
+}

@@ -114,13 +114,15 @@ export function Resources({
           label="GitHub"
           hint="Source and issues"
         />
-        <ResourceRow
-          onClick={onDonate}
-          icon={<HeartIcon className="w-4 h-4" />}
-          label="Donate"
-          hint="Support development"
-          emphasis
-        />
+        <div className="fork-hide-donate">
+          <ResourceRow
+            onClick={onDonate}
+            icon={<HeartIcon className="w-4 h-4" />}
+            label="Donate"
+            hint="Support development"
+            emphasis
+          />
+        </div>
       </div>
     </GlowCard>
   );
