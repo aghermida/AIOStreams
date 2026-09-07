@@ -83,7 +83,6 @@ import { StreamNZBPreset } from './streamnzb.js';
 import { DavexPreset } from './davex.js';
 import { HdHubPreset } from './hdhub.js';
 import { BaguettioPreset } from './baguettio.js';
-import { NextcloudPreset } from './nextcloud.js';
 import { Preset } from './index.js';
 
 let PRESET_LIST: string[] = [
@@ -169,7 +168,6 @@ let PRESET_LIST: string[] = [
   'ai-search',
   'more-like-this',
   'content-deep-dive',
-  'nextcloud-media',
 ].filter(Boolean);
 
 export class PresetManager {
@@ -357,8 +355,6 @@ export class PresetManager {
         return HdHubPreset;
       case 'baguettio':
         return BaguettioPreset;
-      case 'nextcloud-media':
-        return NextcloudPreset;
       default:
         throw new Error(`Preset ${id} not found`);
     }

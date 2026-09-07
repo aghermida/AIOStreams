@@ -38,7 +38,6 @@ import seanimeExtensionsRouter from './routes/seanime/extensions.js';
 import sabnzbdRouter from './routes/api/sabnzbd.js';
 import publicBlocklistRouter from './routes/blocklist.js';
 import publicCommunityRouter from './routes/community.js';
-import nextcloudMediaRouter from './routes/nextcloud-media.js';
 import webdavRouter from './routes/webdav.js';
 import { createNabRouter } from './routes/api/nab.js';
 import {
@@ -55,7 +54,6 @@ import {
   seadex,
   easynews,
   library,
-  nextcloud,
 } from './routes/builtins/index.js';
 import {
   ipMiddleware,
@@ -229,10 +227,8 @@ builtinsRouter.use('/torrent-galaxy', torrentGalaxy);
 builtinsRouter.use('/seadex', seadex);
 builtinsRouter.use('/easynews', easynews);
 builtinsRouter.use('/library', library);
-builtinsRouter.use('/nextcloud', nextcloud);
 app.use('/builtins', builtinsRouter);
 
-app.use('/nextcloud-media', nextcloudMediaRouter);
 app.use('/blocklist', publicBlocklistRouter);
 app.use('/community', publicCommunityRouter);
 app.use('/webdav', webdavRouter);
