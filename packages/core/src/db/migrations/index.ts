@@ -38,7 +38,7 @@ import { usenetUndecodable } from './0027_usenet_undecodable.js';
 //
 // To make that class of collision structurally impossible, every fork-only
 // migration reserves the id range starting at 9000:
-//   - Next new fork-only migration: id 9002, filename 9002_<name>.ts.
+//   - Next new fork-only migration: id 9000, filename 9000_<name>.ts.
 //   - Increment by 1 per fork-only migration after that.
 //   - NEVER reuse, lower, or renumber into upstream's range (currently low
 //     double digits, growing roughly one migration every few days).
@@ -46,9 +46,6 @@ import { usenetUndecodable } from './0027_usenet_undecodable.js';
 //     requires globally unique ids and correct array order, not
 //     contiguity (see runner.ts).
 // ---------------------------------------------------------------------------
-import { userLabel } from './9000_user_label.js';
-import { configEscrow } from './9001_config_escrow.js';
-import { dropUserLabelAndEscrow } from './9002_drop_user_label_and_escrow.js';
 import type { Migration } from './types.js';
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -79,9 +76,6 @@ export const MIGRATIONS: readonly Migration[] = [
   configSessions,
   usenetLibraryArr,
   usenetUndecodable,
-  userLabel,
-  configEscrow,
-  dropUserLabelAndEscrow,
 ];
 
 export type { Migration } from './types.js';
