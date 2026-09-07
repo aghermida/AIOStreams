@@ -4,6 +4,7 @@ import { definitiveLossKind } from '../nntp/errors.js';
 import type { HoleKind } from '../holes.js';
 import { roundSlotSize } from './slot-size.js';
 import type { SlotBank } from './slot-bank.js';
+import { SegmentIntegrityError } from './yenc.js';
 
 /**
  * Read-ahead budget floor, in tasks. Keeps the link busy until the first task
@@ -288,7 +289,9 @@ export abstract class OrderedParallelStream extends Readable {
     }
     this.inflight--;
     if (this.shouldIgnoreTaskError(err)) return;
-    this.logger.debug(
+    // Corrupt bytes, not a flaky link: worth a warn.
+    const level = err instanceof SegmentIntegrityError ? 'warn' : 'debug';
+    this.logger[level](
       { ...this.logContext(idx), err },
       'ordered stream task failed; destroying stream'
     );

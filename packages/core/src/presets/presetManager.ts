@@ -61,6 +61,7 @@ import { TorznabPreset } from './torznab.js';
 import { AStreamPreset } from './aStream.js';
 import { ZileanPreset } from './zilean.js';
 import { AnimeToshoPreset } from './animetosho.js';
+import { AnimeToshoNewPreset } from './animeToshoNew.js';
 import { NewznabPreset } from './newznab.js';
 import { ProwlarrPreset } from './prowlarr.js';
 import { JackettPreset } from './jackett.js';
@@ -68,6 +69,8 @@ import { NZBHydraPreset } from './nzbhydra.js';
 import { KnabenPreset } from './knaben.js';
 import { LibraryPreset } from './library.js';
 import { EztvPreset } from './eztv.js';
+import { TheRARBGPreset } from './therarbg.js';
+import { ThePirateBayPreset } from './thePirateBay.js';
 import { BitmagnetPreset } from './bitmagnet.js';
 import { BrazucaTorrentsPreset } from './brazucaTorrents.js';
 import { SootioPreset } from './sootio.js';
@@ -99,10 +102,13 @@ let PRESET_LIST: string[] = [
   'knaben',
   'library',
   'eztv',
+  'therarbg',
+  'the-pirate-bay',
   'torrent-galaxy',
   'bitmagnet',
   'seadex',
   'animetosho',
+  'anime-tosho-new',
   'neko-bt',
   'prowlarr',
   'jackett',
@@ -311,6 +317,8 @@ export class PresetManager {
         return ZileanPreset;
       case 'animetosho':
         return AnimeToshoPreset;
+      case 'anime-tosho-new':
+        return AnimeToshoNewPreset;
       case 'neko-bt':
         return NekoBtPreset;
       case 'prowlarr':
@@ -325,6 +333,10 @@ export class PresetManager {
         return LibraryPreset;
       case 'eztv':
         return EztvPreset;
+      case 'therarbg':
+        return TheRARBGPreset;
+      case 'the-pirate-bay':
+        return ThePirateBayPreset;
       case 'bitmagnet':
         return BitmagnetPreset;
       case 'seadex':
