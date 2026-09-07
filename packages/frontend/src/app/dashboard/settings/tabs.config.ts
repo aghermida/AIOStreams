@@ -512,7 +512,6 @@ const ACRONYMS: Record<string, string> = {
   sqlite: 'SQLite',
   postgres: 'Postgres',
   redis: 'Redis',
-  nextcloud: 'Nextcloud',
 };
 
 /**

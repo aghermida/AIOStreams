@@ -47,10 +47,6 @@ export {
   refreshLibraryCacheForService,
   testNabEndpoint,
   type NabNamespaceId,
-  NextcloudAddon,
-  validateNextcloudMediaToken,
-  getNextcloudMimeType,
-  type NextcloudConfig,
 } from './builtins/index.js';
 export { PresetManager } from './presets/index.js';
 export {

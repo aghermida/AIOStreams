@@ -1,14 +1,10 @@
 import { createHmac } from 'crypto';
-import { extname } from 'path';
 import { createClient, WebDAVClient } from 'webdav';
-import { Manifest, Meta, MetaPreview, Stream } from '../../db/index.js';
-import { createLogger, ExtrasParser } from '../../utils/index.js';
-import { config as appConfig } from '../../config/index.js';
-import { IMDBMetadata } from '../../metadata/imdb.js';
-import { IdParser } from '../../utils/id-parser.js';
-import { formatBytes } from '../../formatters/index.js';
-
-const logger = createLogger('nextcloud');
+import { config } from './config.js';
+import { resolveTitleAndYear } from './utils/titleResolver.js';
+import { parseId } from './utils/idParser.js';
+import { parseExtras } from './utils/extrasParser.js';
+import { formatBytes } from './utils/formatBytes.js';
 
 const VIDEO_EXTENSIONS = new Set([
   '.mkv',
@@ -26,22 +22,6 @@ const VIDEO_EXTENSIONS = new Set([
   '.iso',
 ]);
 
-const MIME_TYPES: Record<string, string> = {
-  '.mkv': 'video/x-matroska',
-  '.mp4': 'video/mp4',
-  '.avi': 'video/x-msvideo',
-  '.mov': 'video/quicktime',
-  '.wmv': 'video/x-ms-wmv',
-  '.m4v': 'video/x-m4v',
-  '.webm': 'video/webm',
-  '.flv': 'video/x-flv',
-  '.ts': 'video/mp2t',
-  '.m2ts': 'video/mp2t',
-  '.mpg': 'video/mpeg',
-  '.mpeg': 'video/mpeg',
-  '.iso': 'application/octet-stream',
-};
-
 export interface NextcloudConfig {
   url: string;
   username: string;
@@ -50,33 +30,50 @@ export interface NextcloudConfig {
 }
 
 export function getNextcloudMediaToken(config: NextcloudConfig): string {
-  return createHmac('sha256', appConfig.bootstrap.internalSecret)
-    .update('nextcloud-media-v2' + JSON.stringify(config))
+  return createHmac('sha256', internalSecret())
+    .update('nextcloud-addon-v1' + JSON.stringify(config))
     .digest('hex')
     .slice(0, 32);
 }
 
 export function validateNextcloudMediaToken(
   token: string,
-  config: NextcloudConfig
+  cfg: NextcloudConfig
 ): boolean {
-  return token === getNextcloudMediaToken(config);
+  return token === getNextcloudMediaToken(cfg);
 }
 
-export function getNextcloudMimeType(filename: string): string {
-  const ext = extname(filename).toLowerCase();
-  return MIME_TYPES[ext] ?? 'video/mp4';
+function internalSecret(): string {
+  return config.secret;
+}
+
+interface Manifest {
+  id: string;
+  version: string;
+  name: string;
+  description: string;
+  catalogs: unknown[];
+  resources: unknown[];
+  types: string[];
+  behaviorHints: Record<string, unknown>;
+}
+
+interface MetaPreview {
+  id: string;
+  name: string;
+  description?: string;
+  type: string;
 }
 
 export class NextcloudAddon {
   private config: NextcloudConfig;
   private client: WebDAVClient;
 
-  constructor(config: NextcloudConfig) {
-    this.config = config;
+  constructor(cfg: NextcloudConfig) {
+    this.config = cfg;
     this.client = createClient(
-      `${config.url}/remote.php/dav/files/${config.username}`,
-      { username: config.username, password: config.password }
+      `${cfg.url}/remote.php/dav/files/${cfg.username}`,
+      { username: cfg.username, password: cfg.password }
     );
   }
 
@@ -85,7 +82,7 @@ export class NextcloudAddon {
     const base64Config = Buffer.from(JSON.stringify(this.config)).toString(
       'base64url'
     );
-    return `${appConfig.bootstrap.baseUrl}/nextcloud-media/${token}/${base64Config}/files/${encodeURIComponent(filename)}`;
+    return `${config.baseUrl}/media/${token}/${base64Config}/files/${encodeURIComponent(filename)}`;
   }
 
   private async listVideoFiles(): Promise<string[]> {
@@ -101,10 +98,7 @@ export class NextcloudAddon {
             VIDEO_EXTENSIONS.has(extname(f.basename).toLowerCase())
         )
         .map((f: any) => f.basename as string);
-    } catch (e) {
-      logger.error(
-        `Failed to list Nextcloud directory "${this.config.folder}": ${e instanceof Error ? e.message : e}`
-      );
+    } catch {
       return [];
     }
   }
@@ -147,28 +141,13 @@ export class NextcloudAddon {
           name: 'Nextcloud Media',
           id: 'nextcloud.videos',
           type: 'movie',
-          extra: [
-            { name: 'search', isRequired: false },
-            { name: 'skip' },
-          ],
+          extra: [{ name: 'search', isRequired: false }, { name: 'skip' }],
         },
       ],
       resources: [
-        {
-          name: 'stream',
-          types: ['movie', 'series'],
-          idPrefixes: ['tt'],
-        },
-        {
-          name: 'catalog',
-          types: ['movie'],
-          idPrefixes: ['nextcloud'],
-        },
-        {
-          name: 'meta',
-          types: ['movie'],
-          idPrefixes: ['nextcloud'],
-        },
+        { name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] },
+        { name: 'catalog', types: ['movie'], idPrefixes: ['nextcloud'] },
+        { name: 'meta', types: ['movie'], idPrefixes: ['nextcloud'] },
       ],
       types: ['movie', 'series'],
       behaviorHints: {
@@ -184,51 +163,25 @@ export class NextcloudAddon {
     return NextcloudAddon.getManifest();
   }
 
-  async getStreams(type: string, id: string): Promise<Stream[]> {
-    const parsedId = IdParser.parse(id, type);
-    if (!parsedId) throw new Error(`Invalid ID: ${id}`);
+  async getStreams(type: string, id: string) {
+    const parsedId = parseId(id);
+    if (!parsedId) return [];
 
-    if (parsedId.type !== 'imdbId') {
-      logger.debug(`Unsupported ID type for Nextcloud: ${parsedId.type}`);
-      return [];
-    }
+    const { imdbId, season, episode } = parsedId;
 
-    const { season, episode } = parsedId;
-    const seasonNum =
-      season !== undefined ? parseInt(season, 10) : undefined;
-    const episodeNum =
-      episode !== undefined ? parseInt(episode, 10) : undefined;
-
-    let titles: string[] = [];
+    let title: string;
     let year: number | undefined;
-
     try {
-      const imdb = new IMDBMetadata();
-      const metadata = await imdb.getTitleAndYear(
-        parsedId.value.toString(),
-        type
-      );
-      titles = metadata.titles?.map((t) => t.title) ?? [metadata.title];
-      year = metadata.year;
-      logger.debug(
-        `Metadata for ${id}: titles=${titles.join(', ')}, year=${year}`
-      );
-    } catch (e) {
-      logger.warn(
-        `Failed to get metadata for ${id}: ${e instanceof Error ? e.message : e}`
-      );
+      const resolved = await resolveTitleAndYear(imdbId, type);
+      title = resolved.title;
+      year = resolved.year;
+    } catch {
       return [];
     }
-
-    if (titles.length === 0) return [];
 
     const files = await this.listVideoFiles();
     const matches = files.filter((f) =>
-      fileMatchesContent(f, titles, year, seasonNum, episodeNum)
-    );
-
-    logger.debug(
-      `Found ${matches.length} file(s) for ${id}: ${matches.join(', ')}`
+      fileMatchesContent(f, [title], year, season, episode)
     );
 
     const stats = await Promise.all(matches.map((f) => this.getFileStat(f)));
@@ -245,21 +198,16 @@ export class NextcloudAddon {
     }));
   }
 
-  async getCatalog(
-    type: string,
-    id: string,
-    extras?: string
-  ): Promise<MetaPreview[]> {
+  async getCatalog(type: string, id: string, extras?: string): Promise<MetaPreview[]> {
     if (id !== 'nextcloud.videos' || type !== 'movie') {
       throw new Error('Unsupported catalog type or ID');
     }
-    const parsedExtras = extras ? new ExtrasParser(extras) : undefined;
-    const search = parsedExtras?.search?.toLowerCase();
-    const skip = parsedExtras?.skip ?? 0;
+    const { search, skip = 0 } = parseExtras(extras);
 
     let files = await this.listVideoFiles();
     if (search) {
-      files = files.filter((f) => f.toLowerCase().includes(search));
+      const lower = search.toLowerCase();
+      files = files.filter((f) => f.toLowerCase().includes(lower));
     }
 
     const page = files.slice(skip, skip + 100);
@@ -270,7 +218,7 @@ export class NextcloudAddon {
     );
   }
 
-  async getMeta(type: string, id: string): Promise<Meta> {
+  async getMeta(type: string, id: string) {
     if (type !== 'movie' || !id.startsWith('nextcloud.')) {
       throw new Error('Unsupported type or ID for Meta request');
     }
@@ -287,7 +235,7 @@ export class NextcloudAddon {
     return {
       id,
       name: cleanName,
-      description: `📦 ${formatBytes(stat.size, 1000)} • 📅 ${stat.mtime.toLocaleDateString()}`,
+      description: `${formatBytes(stat.size, 1000)} • ${stat.mtime.toLocaleDateString()}`,
       type: 'movie',
       posterShape: 'landscape',
       videos: [
@@ -313,14 +261,18 @@ export class NextcloudAddon {
   }
 
   private createMetaPreview(filename: string, size?: number): MetaPreview {
-    const cleanName = cleanFilename(filename);
     return {
       id: this.filenameToId(filename),
-      name: cleanName,
+      name: cleanFilename(filename),
       description: size ? formatBytes(size, 1000) : undefined,
       type: 'movie',
     };
   }
+}
+
+function extname(filename: string): string {
+  const i = filename.lastIndexOf('.');
+  return i === -1 ? '' : filename.slice(i);
 }
 
 /** Strip extension and quality tags, replace dots/underscores with spaces */
@@ -354,11 +306,9 @@ function fileMatchesContent(
   );
   const normalizedFile = normalized.replace(/[^a-z0-9\s]/g, '');
 
-  const titleMatch = normalizedTitles.some((title) => {
-    if (!title) return false;
-    return normalizedFile.includes(title);
-  });
-
+  const titleMatch = normalizedTitles.some(
+    (title) => title && normalizedFile.includes(title)
+  );
   if (!titleMatch) return false;
 
   if (season !== undefined && episode !== undefined) {
