@@ -5,7 +5,10 @@ on:
     branches:
       - main
   schedule:
-    - cron: '0 6 * * 1'
+    # 05:00 Europe/Madrid. GitHub Actions cron is UTC-only (no DST), so this
+    # is 03:00 UTC while Madrid is on CEST (UTC+2) and needs bumping to
+    # '0 4 * * *' once Madrid switches back to CET (UTC+1) in late October.
+    - cron: '0 3 * * *'
   workflow_dispatch:
 
 jobs:
