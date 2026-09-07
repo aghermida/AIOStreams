@@ -34,14 +34,29 @@ jobs:
             ".github/workflows/release.yml" # release-please not used by this fork; deleted 2026-05-22 (db8afd51)
           )
 
+          # Shared files where this fork only ever appends its own entries
+          # after upstream's (imports, array-literal entries -- see rule 7 of
+          # CLAUDE.md's "Fork sync conventions"). A conflict here is expected
+          # to be nothing more than "both sides added new lines in the same
+          # place", auto-resolved by .github/scripts/resolve-additive-conflicts.py.
+          # That script still bails out (leaving the conflict for a manual
+          # PR, exactly as before this list existed) if a hunk in one of
+          # these files turns out to be more than a pure addition.
+          FORK_ADDITIVE_CONFLICT_FILES=(
+            "packages/core/src/db/migrations/index.ts" # PR #42, 2026-09-07
+            "packages/server/src/app.ts" # PR #42, 2026-09-07
+          )
+
           git remote add upstream https://github.com/Viren070/AIOStreams.git
           git fetch upstream
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config merge.conflictStyle diff3
 
           if ! git merge upstream/main --no-edit; then
             mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
             resolvable=true
+            additive_conflicts=()
             for f in "${conflicts[@]}"; do
               known=false
               for d in "${FORK_DELETED_UPSTREAM_FILES[@]}"; do
@@ -49,10 +64,29 @@ jobs:
               done
               if [ "$known" = true ]; then
                 git rm -f "$f"
+                continue
+              fi
+
+              known=false
+              for d in "${FORK_ADDITIVE_CONFLICT_FILES[@]}"; do
+                [ "$f" = "$d" ] && known=true && break
+              done
+              if [ "$known" = true ]; then
+                additive_conflicts+=("$f")
               else
                 resolvable=false
               fi
             done
+
+            if [ "${#additive_conflicts[@]}" -gt 0 ]; then
+              if python3 .github/scripts/resolve-additive-conflicts.py "${additive_conflicts[@]}"; then
+                for f in "${additive_conflicts[@]}"; do
+                  git add "$f"
+                done
+              else
+                resolvable=false
+              fi
+            fi
 
             if [ "$resolvable" = true ] && [ "${#conflicts[@]}" -gt 0 ]; then
               git commit --no-edit
