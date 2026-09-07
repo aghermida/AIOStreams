@@ -2,7 +2,7 @@ import { Readable, addAbortSignal } from 'node:stream';
 import { createLogger } from '../../logging/logger.js';
 import { MultiProviderPool } from './multi-provider-pool.js';
 import { SegmentsStream } from './segments-stream.js';
-import { isImplausibleYencFileSize } from './yenc.js';
+import { SegmentIntegrityError, isImplausibleYencFileSize } from './yenc.js';
 import { definitiveLossKind } from '../nntp/errors.js';
 import { CommandPriority, EngineOptions, NzbSegmentRef } from '../types.js';
 import type { HoleHooks } from '../holes.js';
@@ -285,6 +285,12 @@ export class FileStream implements SeekableStream {
       ) {
         ({ begin, end: segEnd } = memo);
         const buf = memo.buf;
+        if (memo.len !== segEnd - begin) {
+          throw new SegmentIntegrityError(
+            `segment ${segmentIndex} memo holds ${memo.len} B for a ${segEnd - begin} B part`,
+            segments[segmentIndex].messageId
+          );
+        }
         this.knownRanges.set(segmentIndex, { begin, end: segEnd });
         if (begin >= end) break;
         if (segEnd > pos) {
@@ -307,8 +313,17 @@ export class FileStream implements SeekableStream {
         );
         try {
           const body = h.data.body;
-          begin = h.data.byteRange?.[0] ?? segmentIndex * this.avgDecodedSize;
-          segEnd = h.data.byteRange?.[1] ?? begin + body.length;
+          const range = h.data.byteRange;
+          // A short body would leave the rest of `dst` unwritten but still
+          // advance the cursor, serving whatever the buffer held.
+          if (range !== undefined && range[1] - range[0] !== body.length) {
+            throw new SegmentIntegrityError(
+              `segment ${segmentIndex} body is ${body.length} B but its part range spans ${range[1] - range[0]} B`,
+              segments[segmentIndex].messageId
+            );
+          }
+          begin = range?.[0] ?? segmentIndex * this.avgDecodedSize;
+          segEnd = range?.[1] ?? begin + body.length;
           this.knownRanges.set(segmentIndex, { begin, end: segEnd });
           // The located segment must contain `pos`; subsequent segments start
           // at their own `begin`. Guard against a gap/overshoot just in case.
@@ -384,9 +399,11 @@ export class FileStream implements SeekableStream {
     // Deferred passthrough: do the (async) interpolation search, then wire up a
     // SegmentsStream. We use a PassThrough-like Readable that begins emitting
     // once the start segment is located.
+    let inner: SegmentsStream | undefined;
     const out = new Readable({
       read() {
-        /* pushed by the inner stream */
+        // Paused-mode consumers (async iterators) never emit 'resume'.
+        inner?.resume();
       },
     });
     if (signal) addAbortSignal(signal, out);
@@ -408,7 +425,7 @@ export class FileStream implements SeekableStream {
                   .filter((l) => l >= 0 && l < segments.length)
               )
             : undefined;
-        const inner = new SegmentsStream({
+        inner = new SegmentsStream({
           pool: this.pool,
           segments,
           nzbHash: this.nzbHash,
@@ -447,7 +464,8 @@ export class FileStream implements SeekableStream {
           slotBank: this.pool.slotBank,
           signal,
         });
-        inner.on('data', (chunk: Buffer) => {
+        const src = inner;
+        src.on('data', (chunk: Buffer) => {
           if (!firstByteSeen) {
             firstByteSeen = true;
             logger.debug(
@@ -460,12 +478,12 @@ export class FileStream implements SeekableStream {
               'range first byte'
             );
           }
-          if (!out.push(chunk)) inner.pause();
+          if (!out.push(chunk)) src.pause();
         });
-        inner.on('end', () => out.push(null));
-        inner.on('error', (err) => out.destroy(err));
-        out.on('resume', () => inner.resume());
-        const destroyInner = () => inner.destroy();
+        src.on('end', () => out.push(null));
+        src.on('error', (err) => out.destroy(err));
+        out.on('resume', () => src.resume());
+        const destroyInner = () => src.destroy();
         out.on('close', destroyInner);
       })
       .catch((err) =>
