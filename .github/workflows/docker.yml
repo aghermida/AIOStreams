@@ -5,10 +5,13 @@ on:
     branches:
       - main
   schedule:
-    # 05:00 Europe/Madrid. GitHub Actions cron is UTC-only (no DST), so this
-    # is 03:00 UTC while Madrid is on CEST (UTC+2) and needs bumping to
-    # '0 4 * * *' once Madrid switches back to CET (UTC+1) in late October.
-    - cron: '0 3 * * *'
+    # Every 3 days at 05:00 Europe/Madrid. GitHub Actions cron is UTC-only
+    # (no DST), so this is 03:00 UTC while Madrid is on CEST (UTC+2) and
+    # needs bumping to '0 4 */3 * *' once Madrid switches back to CET
+    # (UTC+1) in late October. The day-of-month '*/3' step resets at each
+    # month boundary (e.g. day 31 -> day 1 is only a 1-day gap), so the
+    # cadence is "every 3 days" on average, not a strict rolling interval.
+    - cron: '0 3 */3 * *'
   workflow_dispatch:
 
 jobs:
