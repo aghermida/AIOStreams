@@ -79,7 +79,11 @@ The frontend uses rsbuild (not Vite/webpack directly) — `pnpm -F frontend dev`
 
 ## Fork sync conventions (read before touching `.github/workflows/` or deleting/renaming any file)
 
-This repo is a personal fork of [`Viren070/AIOStreams`](https://github.com/Viren070/AIOStreams). `.github/workflows/docker.yml` merges `upstream/main` into `main` Mondays/Wednesdays/Fridays at 05:00 Europe/Madrid (cron), on every push, and on manual dispatch, then pushes the result and builds/publishes the Docker image. For this automation to keep working with **zero manual intervention**, the merge must apply cleanly every time — it only ever fails when a fork-only change touches something upstream is still actively evolving on its own.
+This repo is a personal fork of [`Viren070/AIOStreams`](https://github.com/Viren070/AIOStreams).
+
+**Status as of 2026-09-09: dormant.** `ghcr.io/aghermida/aiostreams:latest` (this fork's own image) is no longer deployed anywhere — production (`aiostreams.sandokan.dev`) runs `ghcr.io/viren070/aiostreams:nightly` directly instead, since the fork's codebase had converged to be nearly byte-identical to upstream and there was no remaining fork-only functionality worth the maintenance cost of a separate build pipeline. `.github/workflows/docker.yml` was accordingly reduced to `workflow_dispatch` only (no more cron or push triggers) — the repo and its history are kept, but nothing rebuilds or auto-merges upstream automatically anymore. The rules below are kept as reference for if/when the fork is ever revived for a genuine fork-only need; they described an actively-running sync pipeline before this date.
+
+Historical description of that pipeline (inactive since 2026-09-09): `.github/workflows/docker.yml` merged `upstream/main` into `main` Mondays/Wednesdays/Fridays at 05:00 Europe/Madrid (cron), on every push, and on manual dispatch, then pushed the result and built/published the Docker image. For that automation to keep working with **zero manual intervention**, the merge had to apply cleanly every time — it only ever failed when a fork-only change touched something upstream was still actively evolving on its own.
 
 The sister repo `aiometadata` (same fork-of-upstream setup) hit exactly this: it had deleted two CI workflow files upstream kept modifying, so every nightly sync produced a `modify/delete` conflict and failed repeatedly (2026-08-19 to 2026-08-21, fixed in PR #12 there). Follow these rules here too, for any file:
 
