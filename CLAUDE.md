@@ -79,7 +79,7 @@ The frontend uses rsbuild (not Vite/webpack directly) — `pnpm -F frontend dev`
 
 ## Fork sync conventions (read before touching `.github/workflows/` or deleting/renaming any file)
 
-This repo is a personal fork of [`Viren070/AIOStreams`](https://github.com/Viren070/AIOStreams). `.github/workflows/docker.yml` merges `upstream/main` into `main` every 3 days (cron), on every push, and on manual dispatch, then pushes the result and builds/publishes the Docker image. For this automation to keep working with **zero manual intervention**, the merge must apply cleanly every time — it only ever fails when a fork-only change touches something upstream is still actively evolving on its own.
+This repo is a personal fork of [`Viren070/AIOStreams`](https://github.com/Viren070/AIOStreams). `.github/workflows/docker.yml` merges `upstream/main` into `main` Mondays/Wednesdays/Fridays at 05:00 Europe/Madrid (cron), on every push, and on manual dispatch, then pushes the result and builds/publishes the Docker image. For this automation to keep working with **zero manual intervention**, the merge must apply cleanly every time — it only ever fails when a fork-only change touches something upstream is still actively evolving on its own.
 
 The sister repo `aiometadata` (same fork-of-upstream setup) hit exactly this: it had deleted two CI workflow files upstream kept modifying, so every nightly sync produced a `modify/delete` conflict and failed repeatedly (2026-08-19 to 2026-08-21, fixed in PR #12 there). Follow these rules here too, for any file:
 
